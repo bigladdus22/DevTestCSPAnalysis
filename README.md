@@ -2,7 +2,7 @@
 
 A single-page tool that reprices an Azure **Dev/Test subscription's** actual usage at **Azure Plan (CSP) retail rates** and calculates the **partner discount at which moving to CSP becomes cheaper** than staying on Dev/Test rates.
 
-**Everything runs in your browser.** The CSV files you provide are parsed locally with JavaScript and are never uploaded anywhere. The only outbound calls are to the public, unauthenticated [Azure Retail Prices API](https://learn.microsoft.com/en-us/rest/api/cost-management/retail-prices/azure-retail-prices) when your export lacks a retail comparator column.
+**Everything runs in your browser.** The CSV files you provide are parsed locally with JavaScript and are never uploaded anywhere. The only outbound calls are to the public, unauthenticated [Azure Retail Prices API](https://learn.microsoft.com/en-us/rest/api/cost-management/retail-prices/azure-retail-prices) — to look up retail rates where your export lacks a comparator column, and to price the Windows licensing uplift and reservation rates.
 
 ## What you need to provide
 
@@ -32,6 +32,19 @@ Resources
 
 If you have **Azure Hybrid Benefit** rights (Windows Server licences with active Software Assurance), tick the AHB toggle in the tool — the uplift is then not payable and the comparison narrows considerably.
 
+The `vmSize` column is also the **ARM SKU** used to price reservations (see below), and `location` the ARM region, so this same export sharpens the reservation modelling.
+
+## Reservation savings (Azure Plan only)
+
+Dev/Test subscriptions **cannot buy reserved instances** — Azure Plan can. That lever alone often tips a move, so the tool models it:
+
+- Virtual Machines usage in the cost export is grouped by **SKU + region**, and the steady-state instance count is estimated from the consumed hours (`hours ÷ 730`).
+- **1-year and 3-year reserved-instance rates** are pulled from the Retail Prices API (`priceType eq 'Reservation'`); the term price is the whole-term total, so the monthly-equivalent is that total ÷ 12 or ÷ 36.
+- Each SKU gets a **term selector** (None / 1-year / 3-year) and an editable **reserved quantity**; a "Reserve all at" control sets every SKU at once. The best-saving term is pre-selected to surface the incentive.
+- Azure's billing model is honoured: a reservation covers `qty × 730` hours/month at the reserved rate, and any overage falls back to PAYG.
+
+The reservation saving reduces the CSP base **before** the partner discount, and folds into the KPI row, the verdict, the break-even, and the copied summary.
+
 ## How the comparison works
 
 | Step | Calculation |
@@ -39,8 +52,9 @@ If you have **Azure Hybrid Benefit** rights (Windows Server licences with active
 | Current spend | Sum of usage-charge lines (marketplace and purchase charges excluded — they bill identically on either offer) |
 | Retail repricing | `Quantity × PayGPrice` per line, or Retail Prices API lookup by `MeterId` where PayGPrice is absent |
 | Windows uplift | Per Windows VM: (Windows rate − Linux rate) for its size/region × consumed compute hours (matched from the export where possible, editable per-VM) |
-| CSP cost at *d*% | `(retail + uplift) × (1 − d)` |
-| **Break-even** | `1 − current ÷ (retail + uplift)` — the discount above which Azure Plan beats Dev/Test |
+| Reservation saving | Per reserved SKU: `PAYG-priced hours − (qty × 730 × reserved rate + overage × PAYG)` |
+| CSP cost at *d*% | `(retail + uplift − reservations) × (1 − d)` |
+| **Break-even** | `1 − current ÷ (retail + uplift − reservations)` — the discount above which Azure Plan beats Dev/Test |
 
 Lines with no retail comparator are conservatively treated as having **no Dev/Test discount** (retail = current), so the break-even shown is a floor, not an optimistic estimate.
 
@@ -50,7 +64,7 @@ Lines with no retail comparator are conservatively treated as having **no Dev/Te
 - **Production workloads are prohibited** on Dev/Test offers.
 - Dev/Test rates depend on **active Visual Studio subscribers**; CSP removes that dependency.
 - **SQL Server VMs** on Dev/Test also bill without the SQL licence meter — if present, the true CSP cost is higher than shown unless AHB covers SQL.
-- **Reservations and savings plans** are available on Azure Plan and can improve the CSP case beyond the PAYG comparison used here.
+- **Reservations** are modelled from public retail rates and assume steady-state utilisation of the reserved instances; real commitments carry cancellation/exchange rules and capacity considerations, and a partner may pass additional margin on top. **Savings plans** (not modelled) are a more flexible alternative with typically slightly smaller discounts.
 
 ## Deploying
 
