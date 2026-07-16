@@ -282,7 +282,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
     <!-- all-up business case -->
     <section class="panel" id="allupPanel">
       <h2><span class="step">04</span>All-up business case</h2>
-      <p class="sub">Everything rolled together at the selected discount and reservation choices — per month and annualised. The support value is your estimate of the risk currently carried by running these workloads with <strong>no SLA and no support</strong> on Dev/Test; Azure Plan restores both.</p>
+      <p class="sub">Everything rolled together at the selected discount and reservation choices — per month and annualised. <strong>Reservations show as a saving because Dev/Test can't use them</strong> — they're a lever you only unlock by moving to Azure Plan. The support value is your estimate of the risk currently carried by running these workloads with <strong>no SLA and no support</strong> on Dev/Test; Azure Plan restores both.</p>
       <div class="toggle-row">
         <span class="inline-input">Support / SLA opportunity value <input type="number" id="supportPct" min="0" max="100" step="1" value="10">% of current spend</span>
         <span class="hint" id="supportNote">—</span>
@@ -841,11 +841,13 @@ function applyAllTerms(term){
 function update(){
   const uplift=currentUplift();
   const resSav=currentReservationSavings();
-  // reservations reduce the CSP base before the partner discount is applied
-  const base=Math.max(0,S.retail+uplift-resSav);
   const d=parseFloat($('discSlider').value)/100;
-  const csp=base*(1-d);
-  const be=base>0?Math.max(0,1-(S.current/base)):0;
+  const gross=S.retail+uplift;                 // retail repricing + Windows uplift
+  const cspBeforeRes=gross*(1-d);              // discounted, before reservations
+  // reservations are an Azure Plan-only lever (Dev/Test can't use them) — apply
+  // them as a flat saving so the figure matches the reservation table above
+  const csp=Math.max(0,cspBeforeRes-resSav);
+  const be=gross>0?Math.max(0,1-((S.current+resSav)/gross)):0;
 
   $('discLabel').textContent=(d*100).toFixed(1)+'%';
   $('kpiCurrent').textContent=fmt(S.current);
@@ -894,42 +896,37 @@ function update(){
     $('verdictDelta').textContent='+ '+fmt(Math.abs(delta));
   }
 
-  // all-up business case (incl. support/SLA opportunity value)
+  // all-up business case (reservations shown as an Azure Plan-only saving)
   const support = currentSupportValue();
-  const allUp = delta + support; // direct saving + value of restored support
-  renderAllup(csp, delta, resSav, support, allUp);
-  renderSummary({d, be, current:S.current, csp, uplift, resSav, direct:delta, support, allUp, good:delta>=0});
+  const allUp = delta + support; // net value of moving (positive = in favour)
+  const view = {d, be, current:S.current, cspBeforeRes, csp, resSav, uplift, support, allUp};
+  renderAllup(view);
+  renderSummary(view);
 }
 
 // Live capstone table reflecting every current selection.
 function renderSummary(o){
   if (!$('summaryTable')) return;
-  const yr=v=>fmt(v*12);
   const ctx=(lbl,val)=>`<tr><td>${lbl}</td><td class="r num">${val}</td><td></td></tr>`;
-  const cost=(lbl,m)=>`<tr><td>${lbl}</td><td class="r num">${fmt(m)}</td><td class="r num">${yr(m)}</td></tr>`;
-  const memo=(lbl,m)=>`<tr><td class="hint" style="padding-left:26px">${lbl}</td>`
-    +`<td class="r num hint">${m<0?'− '+fmt(Math.abs(m)):fmt(m)}</td>`
-    +`<td class="r num hint">${m<0?'− '+yr(Math.abs(m)):yr(m)}</td></tr>`;
-  const sav=(lbl,m)=>{ const p=m>=0, c=p?'delta-pos':'delta-neg', s=p?'− ':'+ ';
-    return `<tr><td>${lbl}</td><td class="r num ${c}">${s}${fmt(Math.abs(m))}</td><td class="r num ${c}">${s}${fmt(Math.abs(m)*12)}</td></tr>`; };
-  const tb=$('summaryTable').querySelector('tbody');
-  tb.innerHTML =
+  const repricing = o.cspBeforeRes - o.current;
+  const net = repricing - o.resSav - o.support;
+  $('summaryTable').querySelector('tbody').innerHTML =
       ctx('CSP partner discount applied', (o.d*100).toFixed(1)+'%')
     + ctx('Break-even discount', (o.be*100).toFixed(1)+'%')
-    + cost('Current Dev/Test spend', o.current)
-    + cost('Azure Plan (CSP) cost', o.csp)
-    + (o.uplift>0.5?memo('includes Windows licensing uplift', o.uplift):'')
-    + (o.resSav>0.5?memo('includes reservation saving', -o.resSav):'')
-    + sav('Direct saving from moving', o.direct)
-    + sav('Support / SLA opportunity value', o.support);
-  const tf=$('summaryTable').querySelector('tfoot');
-  const p=o.allUp>=0, c=p?'delta-pos':'delta-neg', s=p?'− ':'+ ';
-  tf.innerHTML=`<tr><td>All-up value of moving to Azure Plan</td>`
-    +`<td class="r num ${c}">${s}${fmt(Math.abs(o.allUp))}</td>`
-    +`<td class="r num ${c}">${s}${fmt(Math.abs(o.allUp)*12)}</td></tr>`;
-  $('summaryVerdict').innerHTML = o.good
-    ? `At <strong>${(o.d*100).toFixed(1)}%</strong> partner discount, moving to Azure Plan is worth <strong>${fmt(o.allUp)}/mo</strong> (${fmt(o.allUp*12)}/yr) all-up, including the support/SLA value.`
-    : `At <strong>${(o.d*100).toFixed(1)}%</strong> discount the direct cost is <strong>${fmt(Math.abs(o.direct))}/mo higher</strong> on Azure Plan; break-even is at ${(o.be*100).toFixed(1)}%. Counting the support/SLA value, the all-up position is ${o.allUp>=0?fmt(o.allUp)+'/mo in favour of moving':fmt(Math.abs(o.allUp))+'/mo against'}.`;
+    + costRow('Current Dev/Test spend', o.current)
+    + costRow('Azure Plan (CSP) cost — before reservations', o.cspBeforeRes)
+    + deltaRow('Extra cost of Azure Plan retail rates vs Dev/Test', repricing)
+    + deltaRow('Reservation saving — Azure Plan only', -o.resSav)
+    + deltaRow('Support / SLA opportunity value', -o.support);
+  const good=net<=0, cls=good?'delta-pos':'delta-neg', s=good?'− ':'+ ';
+  $('summaryTable').querySelector('tfoot').innerHTML=
+    `<tr><td>All-up value of moving to Azure Plan</td>`
+    +`<td class="r num ${cls}">${s}${fmt(Math.abs(net))}</td>`
+    +`<td class="r num ${cls}">${s}${fmt(Math.abs(net)*12)}</td></tr>`;
+  const resTxt = o.resSav>0.5 ? ` Reservations — available only on Azure Plan — already save <strong>${fmt(o.resSav)}/mo</strong>.` : '';
+  $('summaryVerdict').innerHTML = good
+    ? `At <strong>${(o.d*100).toFixed(1)}%</strong> partner discount, moving to Azure Plan is worth <strong>${fmt(-net)}/mo</strong> (${fmt(-net*12)}/yr) all-up once reservations and the support/SLA value are counted.${resTxt}`
+    : `At <strong>${(o.d*100).toFixed(1)}%</strong> discount, Azure Plan costs <strong>${fmt(net)}/mo</strong> more all-up; break-even is at ${(o.be*100).toFixed(1)}%.${resTxt} Raising the partner discount or reserving more closes the gap.`;
 }
 
 // Value of restored SLA/support on Azure Plan: an editable % of current spend.
@@ -939,28 +936,33 @@ function currentSupportValue(){
   const pct = (isFinite(p) && p>=0 && p<=100) ? p : 10;
   return S.current * pct/100;
 }
-function renderAllup(csp, direct, resSav, support, allUp){
+// Shared helpers for the all-up / summary waterfalls. A "delta" is a cost
+// change: negative = a saving (green, shown as "− £X"), positive = extra cost
+// (amber, "+ £X").
+function _yr(v){ return fmt(v*12); }
+function costRow(lbl,m){ return `<tr><td>${lbl}</td><td class="r num">${fmt(m)}</td><td class="r num">${_yr(m)}</td></tr>`; }
+function deltaRow(lbl,m,memo){
+  const good=m<=0, cls=good?'delta-pos':'delta-neg', s=good?'− ':'+ ';
+  return `<tr><td${memo?' class="hint" style="padding-left:26px"':''}>${lbl}</td>`
+    +`<td class="r num ${cls}">${s}${fmt(Math.abs(m))}</td>`
+    +`<td class="r num ${cls}">${s}${fmt(Math.abs(m)*12)}</td></tr>`;
+}
+function renderAllup(o){
   if (!$('allupTable')) return;
-  const yr=v=>fmt(v*12);
-  const sign=v=>v>=0?'− ':'+ ';               // saving shown as a reduction
-  const row=(lbl,m,cls,memo)=>`<tr><td${memo?' class="hint" style="padding-left:26px"':''}>${lbl}</td>`
-    +`<td class="r num ${cls||''}">${fmt(m)}</td><td class="r num ${cls||''}">${yr(m)}</td></tr>`;
-  const tb=$('allupTable').querySelector('tbody');
-  tb.innerHTML =
-      row('Current Dev/Test spend', S.current)
-    + row('Azure Plan (CSP) cost — incl. Windows uplift &amp; reservations', csp)
-    + `<tr><td>Direct saving from moving</td>`
-      + `<td class="r num ${direct>=0?'delta-pos':'delta-neg'}">${sign(direct)}${fmt(Math.abs(direct))}</td>`
-      + `<td class="r num ${direct>=0?'delta-pos':'delta-neg'}">${sign(direct)}${fmt(Math.abs(direct)*12)}</td></tr>`
-    + (resSav>0.5?row('— of which reservation saving (Azure Plan only)', resSav, '', true):'')
-    + `<tr><td>Support / SLA opportunity value restored</td>`
-      + `<td class="r num delta-pos">− ${fmt(support)}</td><td class="r num delta-pos">− ${fmt(support*12)}</td></tr>`;
-  const tf=$('allupTable').querySelector('tfoot');
-  const cls=allUp>=0?'delta-pos':'delta-neg';
-  tf.innerHTML=`<tr><td>All-up value of moving to Azure Plan</td>`
-    +`<td class="r num ${cls}">${sign(allUp)}${fmt(Math.abs(allUp))}</td>`
-    +`<td class="r num ${cls}">${sign(allUp)}${fmt(Math.abs(allUp)*12)}</td></tr>`;
-  $('supportNote').textContent = `= ${fmt(support)}/mo · ${fmt(support*12)}/yr`;
+  const repricing = o.cspBeforeRes - o.current;   // + = Azure Plan retail costs more
+  const net = repricing - o.resSav - o.support;   // + = moving costs more all-up
+  $('allupTable').querySelector('tbody').innerHTML =
+      costRow('Current Dev/Test spend', o.current)
+    + costRow(`Azure Plan (CSP) cost at ${(o.d*100).toFixed(1)}% — retail repricing + Windows uplift, before reservations`, o.cspBeforeRes)
+    + deltaRow('Extra cost of Azure Plan retail rates vs Dev/Test', repricing)
+    + deltaRow('Reservation saving — Azure Plan only, unavailable on Dev/Test', -o.resSav)
+    + deltaRow('Support / SLA opportunity value restored', -o.support);
+  const good=net<=0, cls=good?'delta-pos':'delta-neg', s=good?'− ':'+ ';
+  $('allupTable').querySelector('tfoot').innerHTML=
+    `<tr><td>All-up value of moving to Azure Plan</td>`
+    +`<td class="r num ${cls}">${s}${fmt(Math.abs(net))}</td>`
+    +`<td class="r num ${cls}">${s}${fmt(Math.abs(net)*12)}</td></tr>`;
+  $('supportNote').textContent = `= ${fmt(o.support)}/mo · ${fmt(o.support*12)}/yr`;
 }
 
 function renderServices(){
@@ -980,32 +982,34 @@ function renderServices(){
 /* ================= summary copy ================= */
 function buildSummary(){
   const uplift=currentUplift(), resSav=currentReservationSavings();
-  const base=Math.max(0,S.retail+uplift-resSav);
-  const d=parseFloat($('discSlider').value)/100, csp=base*(1-d);
-  const be=base>0?Math.max(0,1-(S.current/base))*100:0;
+  const d=parseFloat($('discSlider').value)/100;
+  const gross=S.retail+uplift, cspBeforeRes=gross*(1-d), csp=Math.max(0,cspBeforeRes-resSav);
+  const be=gross>0?Math.max(0,1-((S.current+resSav)/gross))*100:0;
   const resLines=S.reserv.filter(v=>v.term!=='none' && reservedCost(v).saving>0.5)
     .map(v=>`  · ${v.sku} (${v.region}) ${v.term==='1y'?'1-yr':'3-yr'} ×${v.qty}: −${fmt(reservedCost(v).saving)}/mo`);
   const support=currentSupportValue();
-  const direct=S.current-csp;
-  const allUp=direct+support;
+  const repricing=cspBeforeRes-S.current;      // + = Azure Plan retail costs more
+  const net=repricing-resSav-support;          // + = moving costs more all-up
   const yr=v=>fmt(v*12);
+  const dl=(v)=>`${v<=0?'−':'+'}${fmt(Math.abs(v))} /mo   ${v<=0?'−':'+'}${fmt(Math.abs(v)*12)} /yr`;
   return [
     'Dev/Test → CSP Azure Plan break-even analysis',
     '='.repeat(46),
     `Current Dev/Test spend (month analysed): ${fmt(S.current)}`,
     `Repriced at PAYG retail:                 ${fmt(S.retail)}`,
     `Windows licensing uplift:                ${fmt(uplift)}${$('ahbToggle').checked?' (AHB applied)':''}`,
-    `Reservation saving (Azure Plan):         ${resSav>0?'−'+fmt(resSav):fmt(0)}`,
+    `Azure Plan cost before reservations:     ${fmt(cspBeforeRes)}  (at ${(d*100).toFixed(1)}% discount)`,
+    `Reservation saving (Azure Plan only):    ${resSav>0?'−'+fmt(resSav):fmt(0)}`,
     ...(resLines.length?resLines:[]),
-    `CSP cost at ${(d*100).toFixed(1)}% discount:            ${fmt(csp)}`,
-    `Monthly delta (CSP vs Dev/Test):         ${direct>=0?'−':'+'}${fmt(Math.abs(direct))}`,
+    `Net Azure Plan cost:                     ${fmt(csp)}`,
     `Break-even CSP discount:                 ${be.toFixed(1)}%`,
     '',
-    'All-up business case',
+    'All-up business case (per month / per year)',
     '-'.repeat(46),
-    `Direct saving from moving:      ${direct>=0?'−':'+'}${fmt(Math.abs(direct))} /mo   ${direct>=0?'−':'+'}${fmt(Math.abs(direct)*12)} /yr`,
-    `Support / SLA opportunity value: −${fmt(support)} /mo   −${yr(support)} /yr`,
-    `All-up value of moving:          ${allUp>=0?'−':'+'}${fmt(Math.abs(allUp))} /mo   ${allUp>=0?'−':'+'}${fmt(Math.abs(allUp)*12)} /yr`,
+    `Extra cost of Azure Plan retail vs Dev/Test: ${dl(repricing)}`,
+    `Reservation saving (Azure Plan only):        ${dl(-resSav)}`,
+    `Support / SLA opportunity value:             ${dl(-support)}`,
+    `All-up value of moving to Azure Plan:        ${dl(net)}`,
     '',
     'Excluded (marketplace/purchases, bill identically): '+fmt(S.excluded),
     'Notes: PAYG retail is the conservative comparator. Reservations require Azure Plan (unavailable on Dev/Test) and assume steady-state use of the reserved instances; savings plans are an alternative. The support/SLA value is an assumption. Dev/Test carries no SLA and prohibits production use.'

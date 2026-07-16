@@ -47,14 +47,15 @@ The reservation saving reduces the CSP base **before** the partner discount, and
 
 ## All-up business case
 
-A consolidated panel rolls everything together **per month and annualised**:
+A consolidated panel rolls everything together **per month and annualised**, presented as a waterfall so each lever is visible:
 
-- Current Dev/Test spend vs the Azure Plan (CSP) cost (already including the Windows uplift and reservations).
-- The **direct saving from moving**, with the reservation contribution shown as a memo line.
-- A **support / SLA opportunity value** — an editable **% of current spend** (default 10%) representing the risk currently carried by running these workloads with *no SLA and no support* on Dev/Test, which Azure Plan restores.
-- The **all-up value of moving**, monthly and yearly.
+- Current Dev/Test spend and the Azure Plan (CSP) cost **before reservations** (retail repricing + Windows uplift, at the selected discount).
+- **Extra cost of Azure Plan retail rates vs Dev/Test** — Dev/Test rates are genuinely cheaper than PAYG retail, so this is usually a cost against moving.
+- **Reservation saving** — shown as an explicit saving because reservations are an **Azure Plan-only lever** (Dev/Test can't use them); the figure matches the reservation table total.
+- **Support / SLA opportunity value** — an editable **% of current spend** (default 10%) representing the risk currently carried by running these workloads with *no SLA and no support* on Dev/Test, which Azure Plan restores.
+- The **all-up value of moving**, monthly and yearly (the sum of the three deltas above).
 
-The support value is an assumption you set; everything else is derived from the export and your reservation/discount choices.
+The support value is an assumption you set; everything else is derived from the export and your reservation/discount choices. Reservations are applied as a flat saving on top of the discounted cost, so the reservation figure stays consistent across the reservation table, the all-up panel and the summary.
 
 A **Summary** capstone at the bottom of the results restates the whole picture — discount applied, break-even, Dev/Test spend, CSP cost (with the uplift and reservation contributions as memo lines), direct saving, support value and the all-up total — and updates live as you move the discount slider or change any reservation, uplift or support input.
 
