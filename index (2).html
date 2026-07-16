@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dev/Test → CSP Break-Even Analyser</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+:root{
+  --ink:#101826;
+  --ink-soft:#3D4A5C;
+  --ink-faint:#7A8699;
+  --paper:#F2F4F7;
+  --card:#FFFFFF;
+  --line:#DDE3EA;
+  --azure:#0B5CAB;
+  --azure-soft:#E8F1FA;
+  --good:#1E8E5A;
+  --good-soft:#E7F5EE;
+  --bad:#B45309;
+  --bad-soft:#FBF0E1;
+  --radius:10px;
+  --mono:'IBM Plex Mono',ui-monospace,monospace;
+  --sans:'IBM Plex Sans',system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important;animation:none!important}}
+body{font-family:var(--sans);background:var(--paper);color:var(--ink);font-size:15px;line-height:1.55}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* ---------- masthead ---------- */
+header{background:var(--ink);color:#EAF0F7;padding:26px 0 22px}
+.wrap{max-width:1060px;margin:0 auto;padding:0 24px}
+.masthead{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex-wrap:wrap}
+.masthead h1{font-size:21px;font-weight:600;letter-spacing:-.01em}
+.masthead h1 .path{color:#8FB8E4;font-family:var(--mono);font-weight:500;font-size:19px}
+.masthead p{color:#9AA8BC;font-size:13.5px;margin-top:4px;max-width:620px}
+.privacy{font-size:12.5px;color:#BFE3C9;border:1px solid #2E4A3A;background:#16281F;border-radius:999px;padding:6px 14px;white-space:nowrap}
+
+/* ---------- panels ---------- */
+main{padding:28px 0 80px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:22px 24px;margin-bottom:18px}
+.panel h2{font-size:15px;font-weight:600;letter-spacing:.01em;margin-bottom:4px}
+.panel h2 .step{font-family:var(--mono);color:var(--azure);margin-right:8px;font-weight:600}
+.panel .sub{color:var(--ink-faint);font-size:13.5px;margin-bottom:14px}
+
+/* ---------- dropzones ---------- */
+.dz-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:760px){.dz-row{grid-template-columns:1fr}}
+.dropzone{border:1.5px dashed #B9C4D2;border-radius:var(--radius);padding:26px 18px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s;background:#FBFCFE}
+.dropzone:hover,.dropzone:focus-visible,.dropzone.drag{border-color:var(--azure);background:var(--azure-soft);outline:none}
+.dropzone.loaded{border-style:solid;border-color:var(--good);background:var(--good-soft)}
+.dropzone strong{display:block;font-size:14px;font-weight:600;margin-bottom:3px}
+.dropzone span{font-size:12.5px;color:var(--ink-faint)}
+.dropzone .file-tag{display:none;font-family:var(--mono);font-size:12.5px;color:var(--good);margin-top:6px;word-break:break-all}
+.dropzone.loaded .file-tag{display:block}
+.dz-optional{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint)}
+.actions{margin-top:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+button{font-family:var(--sans);font-size:14px;font-weight:600;border-radius:8px;border:1px solid transparent;padding:9px 18px;cursor:pointer}
+button:focus-visible{outline:2px solid var(--azure);outline-offset:2px}
+.btn-primary{background:var(--azure);color:#fff}
+.btn-primary:hover{background:#0A4E91}
+.btn-primary:disabled{background:#B9C4D2;cursor:not-allowed}
+.btn-ghost{background:transparent;color:var(--azure);border-color:#B9C4D2}
+.btn-ghost:hover{background:var(--azure-soft)}
+.hint{font-size:12.5px;color:var(--ink-faint)}
+.hint code{font-family:var(--mono);font-size:11.5px;background:var(--paper);border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+
+/* ---------- verdict strip (signature) ---------- */
+#results{display:none}
+.verdict{border-radius:var(--radius);border:1px solid var(--line);overflow:hidden;margin-bottom:18px}
+.verdict-banner{padding:20px 24px;display:flex;justify-content:space-between;gap:20px;align-items:center;flex-wrap:wrap;transition:background .2s}
+.verdict-banner.good{background:var(--good-soft)}
+.verdict-banner.bad{background:var(--bad-soft)}
+.verdict-banner h3{font-size:17px;font-weight:700}
+.verdict-banner.good h3{color:var(--good)}
+.verdict-banner.bad h3{color:var(--bad)}
+.verdict-banner p{font-size:13.5px;color:var(--ink-soft);margin-top:2px}
+.verdict-delta{text-align:right}
+.verdict-delta .big{font-family:var(--mono);font-size:26px;font-weight:600;letter-spacing:-.01em}
+.verdict-banner.good .big{color:var(--good)}
+.verdict-banner.bad .big{color:var(--bad)}
+.verdict-delta .lbl{font-size:11.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-faint)}
+.slider-zone{background:var(--card);padding:22px 24px 26px;border-top:1px solid var(--line)}
+.slider-head{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.slider-head .cur{font-size:14px;font-weight:600}
+.slider-head .cur .num{font-size:18px;color:var(--azure)}
+.slider-head .be{font-size:13px;color:var(--ink-faint)}
+.slider-head .be .num{font-weight:600;color:var(--ink)}
+.track-wrap{position:relative;height:44px}
+.track{position:absolute;top:19px;left:0;right:0;height:6px;border-radius:3px;background:linear-gradient(to right,var(--bad-soft),var(--bad-soft))}
+.be-tick{position:absolute;top:8px;width:2px;height:28px;background:var(--ink);opacity:.8}
+.be-tick::after{content:'break-even';position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-faint);white-space:nowrap}
+input[type=range]{position:absolute;top:12px;left:0;width:100%;height:20px;-webkit-appearance:none;appearance:none;background:transparent;cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:var(--card);border:3px solid var(--azure);box-shadow:0 1px 4px rgba(16,24,38,.25)}
+input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:var(--card);border:3px solid var(--azure);box-shadow:0 1px 4px rgba(16,24,38,.25)}
+input[type=range]:focus-visible{outline:2px solid var(--azure);outline-offset:6px}
+.scale{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;color:var(--ink-faint);margin-top:2px}
+
+/* ---------- KPI row ---------- */
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:18px}
+@media(max-width:860px){.kpis{grid-template-columns:repeat(2,1fr)}}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px}
+.kpi .lbl{font-size:11.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-faint);margin-bottom:6px}
+.kpi .val{font-family:var(--mono);font-size:22px;font-weight:600;letter-spacing:-.01em}
+.kpi .note{font-size:12px;color:var(--ink-faint);margin-top:4px}
+
+/* ---------- tables ---------- */
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-faint);text-align:left;font-weight:600;padding:8px 10px;border-bottom:1.5px solid var(--line)}
+td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+td.r,th.r{text-align:right}
+td .bar-bg{background:var(--paper);border-radius:3px;height:8px;width:100%;min-width:90px;overflow:hidden}
+td .bar{height:8px;border-radius:3px;background:var(--azure);opacity:.8}
+.delta-pos{color:var(--good);font-weight:600}
+.delta-neg{color:var(--bad);font-weight:600}
+tfoot td{font-weight:600;border-top:2px solid var(--ink);border-bottom:none}
+
+/* ---------- windows uplift ---------- */
+.toggle-row{display:flex;gap:24px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.toggle{display:flex;align-items:center;gap:9px;font-size:14px;font-weight:500;cursor:pointer}
+.toggle input{width:18px;height:18px;accent-color:var(--azure);cursor:pointer}
+.inline-input{display:flex;align-items:center;gap:8px;font-size:13.5px}
+.inline-input input{font-family:var(--mono);font-size:13.5px;width:110px;padding:6px 9px;border:1px solid var(--line);border-radius:6px}
+.inline-input input:focus-visible{outline:2px solid var(--azure);outline-offset:1px}
+.pill{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.05em;border-radius:999px;padding:2px 9px}
+.pill.win{background:var(--azure-soft);color:var(--azure)}
+td input.hrs{font-family:var(--mono);width:78px;padding:4px 7px;border:1px solid var(--line);border-radius:5px;font-size:13px;text-align:right}
+
+/* ---------- notes / caveats ---------- */
+.note-list{list-style:none}
+.note-list li{padding:9px 0 9px 26px;position:relative;font-size:13.5px;color:var(--ink-soft);border-bottom:1px solid var(--line)}
+.note-list li:last-child{border-bottom:none}
+.note-list li::before{content:'▸';position:absolute;left:6px;color:var(--azure);font-size:12px}
+.warn-box{background:var(--bad-soft);border:1px solid #EAD3AE;border-radius:8px;padding:12px 16px;font-size:13px;color:#7A4A10;margin-top:12px;display:none}
+.status{font-size:13px;font-family:var(--mono);color:var(--ink-faint);margin-top:10px;min-height:18px}
+footer{border-top:1px solid var(--line);padding:20px 0 40px;color:var(--ink-faint);font-size:12.5px}
+footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap masthead">
+    <div>
+      <h1><span class="path">dev/test&nbsp;→&nbsp;csp</span> &nbsp;Break-Even Analyser</h1>
+      <p>Reprices a Dev/Test subscription's actual usage at Azure Plan (CSP) retail rates and finds the partner discount at which the move makes commercial sense.</p>
+    </div>
+    <div class="privacy">🔒 Runs entirely in your browser — no data is uploaded</div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- STEP 1: inputs -->
+  <section class="panel">
+    <h2><span class="step">01</span>Provide usage data</h2>
+    <p class="sub">Export one full month from <strong>Cost Management → Cost analysis → Download (CSV)</strong> or a scheduled "Cost and usage details (actual cost)" export, at subscription scope, daily granularity.</p>
+    <div class="dz-row">
+      <div class="dropzone" id="dzCost" tabindex="0" role="button" aria-label="Upload cost and usage CSV">
+        <strong>Cost &amp; usage CSV</strong>
+        <span>Drag &amp; drop or click to browse · required</span>
+        <span class="file-tag" id="tagCost"></span>
+        <input type="file" id="fileCost" accept=".csv" hidden>
+      </div>
+      <div class="dropzone" id="dzInv" tabindex="0" role="button" aria-label="Upload VM inventory CSV">
+        <span class="dz-optional">Optional</span>
+        <strong>VM inventory CSV</strong>
+        <span>Resource Graph export with name, vmSize, osType, location — enables the Windows licensing uplift</span>
+        <span class="file-tag" id="tagInv"></span>
+        <input type="file" id="fileInv" accept=".csv" hidden>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn-primary" id="btnAnalyse" disabled>Analyse subscription</button>
+      <button class="btn-ghost" id="btnDemo">Load demo data</button>
+      <span class="hint">Inventory query: <code>Resources | where type =~ 'microsoft.compute/virtualmachines' | project name, vmSize=tostring(properties.hardwareProfile.vmSize), osType=tostring(properties.storageProfile.osDisk.osType), location</code></span>
+    </div>
+    <div class="status" id="status"></div>
+    <div class="warn-box" id="warnBox"></div>
+  </section>
+
+  <!-- RESULTS -->
+  <div id="results">
+
+    <!-- verdict + slider -->
+    <section class="verdict" aria-live="polite">
+      <div class="verdict-banner" id="verdictBanner">
+        <div>
+          <h3 id="verdictTitle">—</h3>
+          <p id="verdictSub">—</p>
+        </div>
+        <div class="verdict-delta">
+          <div class="big num" id="verdictDelta">—</div>
+          <div class="lbl">per month at selected discount</div>
+        </div>
+      </div>
+      <div class="slider-zone">
+        <div class="slider-head">
+          <div class="cur">CSP discount: <span class="num" id="discLabel">10.0%</span></div>
+          <div class="be">Break-even at <span class="num" id="beLabel">—</span> — any discount above this beats Dev/Test</div>
+        </div>
+        <div class="track-wrap">
+          <div class="track" id="track"></div>
+          <div class="be-tick" id="beTick" style="left:50%"></div>
+          <input type="range" id="discSlider" min="0" max="30" step="0.5" value="10" aria-label="CSP discount percentage">
+        </div>
+        <div class="scale"><span>0%</span><span>5</span><span>10</span><span>15</span><span>20</span><span>25</span><span>30%</span></div>
+      </div>
+    </section>
+
+    <!-- KPIs -->
+    <div class="kpis">
+      <div class="kpi"><div class="lbl">Current Dev/Test spend</div><div class="val num" id="kpiCurrent">—</div><div class="note" id="kpiPeriod">per month analysed</div></div>
+      <div class="kpi"><div class="lbl">Repriced at retail (PAYG)</div><div class="val num" id="kpiRetail">—</div><div class="note" id="kpiCoverage">—</div></div>
+      <div class="kpi"><div class="lbl">Windows licensing uplift</div><div class="val num" id="kpiUplift">—</div><div class="note" id="kpiUpliftNote">—</div></div>
+      <div class="kpi"><div class="lbl">CSP cost at selected discount</div><div class="val num" id="kpiCsp">—</div><div class="note">retail + uplift − discount</div></div>
+    </div>
+
+    <!-- windows uplift -->
+    <section class="panel" id="upliftPanel">
+      <h2><span class="step">02</span>Windows Server licensing uplift</h2>
+      <p class="sub">Dev/Test bills Windows VMs at Linux rates with no licence meter, so repricing usage alone understates the CSP cost. This section adds the licence delta back for Windows VMs.</p>
+      <div class="toggle-row">
+        <label class="toggle"><input type="checkbox" id="ahbToggle"> Azure Hybrid Benefit available (existing Windows Server licences with SA) — uplift not payable</label>
+        <span class="inline-input">Manual monthly uplift override: <input type="number" id="upliftOverride" min="0" step="1" placeholder="auto"></span>
+      </div>
+      <div id="upliftTableWrap"><p class="hint" id="upliftHint">No VM inventory provided — uplift assumed 0. Add the inventory CSV, or enter a manual override if the estate includes Windows VMs.</p></div>
+    </section>
+
+    <!-- service breakdown -->
+    <section class="panel">
+      <h2><span class="step">03</span>Where the Dev/Test discount is earning its keep</h2>
+      <p class="sub">Current cost vs retail repricing by service. Large deltas are the services whose Dev/Test rates the CSP discount has to beat.</p>
+      <div style="overflow-x:auto"><table id="svcTable">
+        <thead><tr><th>Service</th><th class="r">Current (Dev/Test)</th><th class="r">Retail (PAYG)</th><th class="r">Dev/Test saving</th><th style="width:22%">Share of retail spend</th></tr></thead>
+        <tbody></tbody>
+        <tfoot></tfoot>
+      </table></div>
+    </section>
+
+    <!-- caveats -->
+    <section class="panel">
+      <h2><span class="step">04</span>What the numbers can't show</h2>
+      <ul class="note-list">
+        <li><strong>No SLA on Dev/Test.</strong> Dev/Test offers carry no financially-backed SLA. Azure Plan (CSP) restores standard SLAs — worth real money if these workloads matter.</li>
+        <li><strong>Production is prohibited on Dev/Test.</strong> If any of this estate is quietly running production, moving to CSP is a compliance fix, not just a commercial choice.</li>
+        <li><strong>Visual Studio subscription dependency.</strong> Dev/Test rates require active Visual Studio subscribers. CSP removes that dependency and its per-seat cost.</li>
+        <li><strong>Marketplace &amp; purchase charges are excluded</strong> from the repricing — they bill identically on either offer.</li>
+        <li><strong>SQL Server on Dev/Test</strong> also bills without the SQL licence meter. If the estate includes SQL VMs, the true CSP cost is higher than shown unless AHB covers SQL too.</li>
+        <li><strong>Reservations &amp; savings plans</strong> are available on Azure Plan and can close the gap further — this tool compares against PAYG retail as the conservative case.</li>
+      </ul>
+    </section>
+
+    <div class="actions">
+      <button class="btn-ghost" id="btnCopy">Copy summary to clipboard</button>
+      <span class="hint" id="copyDone"></span>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Estimates only — validate against a formal quote before contracting. Retail rates via the public Azure Retail Prices API where the export lacks PayGPrice.</span>
+    <span class="num" id="ccyNote"></span>
+  </div>
+</footer>
+
+<script>
+'use strict';
+/* ================= state ================= */
+const S = {
+  costFile:null, invFile:null,
+  rows:[], currency:'GBP',
+  current:0, retail:0, coveredRetail:0, coveredCurrent:0,
+  services:[],          // {name, current, retail}
+  excluded:0,           // marketplace/purchase spend
+  winVMs:[],            // {name,size,region,hours,delta,monthly}
+  upliftAuto:0,
+  apiFailed:false
+};
+const $ = id => document.getElementById(id);
+const fmt = v => new Intl.NumberFormat(undefined,{style:'currency',currency:S.currency,maximumFractionDigits:0}).format(v);
+const fmt2 = v => new Intl.NumberFormat(undefined,{style:'currency',currency:S.currency,maximumFractionDigits:2}).format(v);
+
+/* ================= column mapping ================= */
+const norm = s => String(s||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+const COLS = {
+  cost:['costinbillingcurrency','cost','pretaxcost','costinusd'],
+  qty:['quantity','usagequantity','consumedquantity'],
+  eff:['effectiveprice'],
+  payg:['paygprice','paygoprice','payasyougoprice','marketprice'],
+  unit:['unitprice'],
+  meterId:['meterid'],
+  meterCat:['metercategory'],
+  meterSub:['metersubcategory'],
+  meterName:['metername'],
+  region:['resourcelocation','location'],
+  ccy:['billingcurrency','billingcurrencycode','currencycode','currency'],
+  chargeType:['chargetype'],
+  pubType:['publishertype'],
+  resId:['resourceid','instanceid','instancename'],
+  uom:['unitofmeasure']
+};
+function mapHeaders(fields){
+  const m = {}, nf = fields.map(f=>({raw:f,n:norm(f)}));
+  for (const key in COLS){
+    for (const cand of COLS[key]){
+      const hit = nf.find(f=>f.n===cand);
+      if (hit){ m[key]=hit.raw; break; }
+    }
+  }
+  return m;
+}
+
+/* ================= parse + analyse ================= */
+function parseFile(file){
+  return new Promise((res,rej)=>{
+    Papa.parse(file,{header:true,skipEmptyLines:true,dynamicTyping:false,
+      complete:r=>res(r), error:e=>rej(e)});
+  });
+}
+
+async function analyse(){
+  $('btnAnalyse').disabled = true;
+  setStatus('Parsing cost export…');
+  hideWarn();
+  try{
+    const parsed = typeof S.costFile==='string'
+      ? Papa.parse(S.costFile,{header:true,skipEmptyLines:true})
+      : await parseFile(S.costFile);
+    const M = mapHeaders(parsed.meta.fields||[]);
+    if (!M.cost || !M.qty){
+      showWarn('Could not find cost/quantity columns. Expected a Cost Management usage export (columns like CostInBillingCurrency, Quantity, MeterId…). Check the file and try again.');
+      setStatus(''); $('btnAnalyse').disabled=false; return;
+    }
+    const rows = parsed.data;
+    // currency
+    const ccyRow = rows.find(r=>r[M.ccy]);
+    S.currency = M.ccy && ccyRow ? String(ccyRow[M.ccy]).trim().toUpperCase() : 'GBP';
+    try{ fmt(1); }catch(e){ S.currency='GBP'; }
+
+    // classify + aggregate
+    let current=0, excluded=0;
+    const byService = new Map();       // cat -> {current,retail,covered}
+    const needLookup = new Map();      // meterId -> {qty,cost,cat,region,name}
+    let coveredRetail=0, coveredCurrent=0, retail=0;
+
+    for (const r of rows){
+      const cost = parseFloat(r[M.cost])||0;
+      const qty  = parseFloat(r[M.qty])||0;
+      const charge = M.chargeType ? String(r[M.chargeType]||'Usage') : 'Usage';
+      const pub = M.pubType ? String(r[M.pubType]||'Azure') : 'Azure';
+      const isMkt = /marketplace/i.test(pub);
+      const isUsage = /usage/i.test(charge) || charge==='';
+      if (!isUsage || isMkt){ excluded += cost; continue; }
+      current += cost;
+      const cat = (M.meterCat && r[M.meterCat]) ? r[M.meterCat] : 'Other';
+      if (!byService.has(cat)) byService.set(cat,{name:cat,current:0,retail:0,covered:0});
+      const svc = byService.get(cat);
+      svc.current += cost;
+
+      const payg = M.payg ? parseFloat(r[M.payg]) : NaN;
+      if (isFinite(payg) && payg>0 && qty>0){
+        const rr = payg*qty;
+        retail += rr; svc.retail += rr; svc.covered += cost;
+        coveredRetail += rr; coveredCurrent += cost;
+      } else if (M.meterId && r[M.meterId] && qty>0 && cost>0){
+        const id = r[M.meterId];
+        if (!needLookup.has(id)) needLookup.set(id,{qty:0,cost:0,cat,region:M.region?r[M.region]:''});
+        const nl = needLookup.get(id); nl.qty+=qty; nl.cost+=cost;
+      } else {
+        // no comparator — assume no discount on this line (conservative: retail = current)
+        retail += cost; svc.retail += cost;
+      }
+    }
+
+    // Retail Prices API fallback for meters without PayGPrice
+    if (needLookup.size){
+      setStatus(`Looking up retail rates for ${needLookup.size} meters via the Azure Retail Prices API…`);
+      let done=0;
+      const ids=[...needLookup.keys()].slice(0,150);
+      for (const id of ids){
+        const nl = needLookup.get(id);
+        const price = await retailByMeter(id);
+        done++;
+        if (done%10===0) setStatus(`Retail lookups: ${done}/${ids.length}…`);
+        const svc = byService.get(nl.cat);
+        if (price!==null && price>0){
+          const rr = price*nl.qty;
+          retail += rr; svc.retail += rr; svc.covered += nl.cost;
+          coveredRetail += rr; coveredCurrent += nl.cost;
+        } else {
+          retail += nl.cost; svc.retail += nl.cost; // fallback: no delta
+        }
+        needLookup.delete(id);
+      }
+      // anything left over the cap: no delta
+      for (const nl of needLookup.values()){
+        retail += nl.cost; byService.get(nl.cat).retail += nl.cost;
+      }
+    }
+
+    S.current=current; S.retail=retail; S.excluded=excluded;
+    S.coveredRetail=coveredRetail; S.coveredCurrent=coveredCurrent;
+    S.services=[...byService.values()].sort((a,b)=>b.retail-a.retail);
+
+    // Windows uplift from inventory
+    S.winVMs=[]; S.upliftAuto=0;
+    if (S.invFile){
+      setStatus('Pricing Windows licensing uplift…');
+      await buildUplift(rows,M);
+    }
+
+    render();
+    setStatus('');
+  }catch(err){
+    console.error(err);
+    showWarn('Something went wrong while analysing: '+err.message);
+    setStatus('');
+  }
+  $('btnAnalyse').disabled=false;
+}
+
+/* ================= retail prices api ================= */
+const priceCache = new Map();
+async function retailByMeter(meterId){
+  if (priceCache.has('m:'+meterId)) return priceCache.get('m:'+meterId);
+  try{
+    const url = `https://prices.azure.com/api/retail/prices?currencyCode=${S.currency}&$filter=meterId eq '${meterId}' and priceType eq 'Consumption'`;
+    const r = await fetch(url); if(!r.ok) throw 0;
+    const j = await r.json();
+    const item = (j.Items||[]).find(i=>!/spot|low priority/i.test(i.skuName||''));
+    const p = item ? item.retailPrice : null;
+    priceCache.set('m:'+meterId,p); return p;
+  }catch(e){ S.apiFailed=true; priceCache.set('m:'+meterId,null); return null; }
+}
+async function vmPricePair(size,region){
+  const key = `v:${size}:${region}`;
+  if (priceCache.has(key)) return priceCache.get(key);
+  try{
+    const url = `https://prices.azure.com/api/retail/prices?currencyCode=${S.currency}&$filter=armSkuName eq '${size}' and armRegionName eq '${region}' and priceType eq 'Consumption' and serviceName eq 'Virtual Machines'`;
+    const r = await fetch(url); if(!r.ok) throw 0;
+    const j = await r.json();
+    const items=(j.Items||[]).filter(i=>!/spot|low priority/i.test((i.skuName||'')+(i.meterName||'')));
+    const win = items.find(i=>/windows/i.test(i.productName||''));
+    const lin = items.find(i=>!/windows|cloudserver/i.test(i.productName||''));
+    const pair = (win&&lin)?{delta:Math.max(0,win.retailPrice-lin.retailPrice)}:null;
+    priceCache.set(key,pair); return pair;
+  }catch(e){ S.apiFailed=true; priceCache.set(key,null); return null; }
+}
+
+async function buildUplift(costRows,M){
+  const parsed = typeof S.invFile==='string'
+    ? Papa.parse(S.invFile,{header:true,skipEmptyLines:true})
+    : await parseFile(S.invFile);
+  const f = parsed.meta.fields||[];
+  const c = {}, nf=f.map(x=>({raw:x,n:norm(x)}));
+  const pick=(...cands)=>{ for(const cd of cands){const h=nf.find(x=>x.n===cd||x.n.endsWith(cd)); if(h) return h.raw;} return null; };
+  c.name=pick('name','vmname'); c.size=pick('vmsize','size'); c.os=pick('ostype','os'); c.loc=pick('location','region');
+  if (!c.name||!c.os||!c.size){ showWarn('VM inventory CSV needs name, vmSize, osType and location columns — Windows uplift skipped.'); return; }
+
+  // consumed compute hours per VM name from cost rows
+  const hoursByVM = new Map();
+  if (M.resId && M.meterCat){
+    for (const r of costRows){
+      if (!/virtual machines/i.test(r[M.meterCat]||'')) continue;
+      const rid = String(r[M.resId]||'').toLowerCase();
+      const q = parseFloat(r[M.qty])||0;
+      const nmMatch = rid.split('/').pop();
+      if (nmMatch) hoursByVM.set(nmMatch,(hoursByVM.get(nmMatch)||0)+q);
+    }
+  }
+
+  for (const row of parsed.data){
+    if (!/windows/i.test(String(row[c.os]||''))) continue;
+    const name=String(row[c.name]||'').trim();
+    const size=String(row[c.size]||'').trim();
+    const region=String(row[c.loc]||'').toLowerCase().replace(/\s+/g,'');
+    const pair = await vmPricePair(size,region);
+    const matched = hoursByVM.get(name.toLowerCase());
+    const hours = matched && matched>0 ? Math.round(matched) : 730;
+    const delta = pair?pair.delta:null;
+    S.winVMs.push({name,size,region,hours,delta,est:!matched});
+  }
+  recalcUplift();
+}
+function recalcUplift(){
+  S.upliftAuto = S.winVMs.reduce((t,v)=>t+(v.delta!==null?v.delta*v.hours:0),0);
+}
+function currentUplift(){
+  if ($('ahbToggle').checked) return 0;
+  const ov = parseFloat($('upliftOverride').value);
+  if (isFinite(ov) && ov>=0 && $('upliftOverride').value!=='') return ov;
+  return S.upliftAuto;
+}
+
+/* ================= render ================= */
+function render(){
+  $('results').style.display='block';
+  $('ccyNote').textContent='Currency: '+S.currency;
+
+  // coverage note
+  const covPct = S.current>0 ? (S.coveredCurrent/S.current*100) : 0;
+  $('kpiCoverage').textContent = covPct>=99.5 ? 'full retail comparator coverage'
+    : `${covPct.toFixed(0)}% of spend had a retail comparator`;
+  if (S.apiFailed) showWarn('Some retail rate lookups failed (the Retail Prices API may be unreachable from this network). Lines without a comparator are treated as having no Dev/Test discount — the break-even shown is conservative.');
+
+  // uplift table
+  const wrap=$('upliftTableWrap');
+  if (S.winVMs.length){
+    let html='<div style="overflow-x:auto"><table><thead><tr><th>VM</th><th>Size</th><th>Region</th><th class="r">Hours / month</th><th class="r">Licence delta / hr</th><th class="r">Monthly uplift</th></tr></thead><tbody>';
+    S.winVMs.forEach((v,i)=>{
+      html+=`<tr><td><span class="pill win">WIN</span> ${esc(v.name)}</td><td class="num">${esc(v.size)}</td><td class="num">${esc(v.region)}</td>
+      <td class="r"><input class="hrs num" data-i="${i}" type="number" min="0" max="744" value="${v.hours}">${v.est?' <span class="hint">est.</span>':''}</td>
+      <td class="r num">${v.delta!==null?fmt2(v.delta):'<span class="hint">n/a</span>'}</td>
+      <td class="r num" id="vmU${i}">${v.delta!==null?fmt(v.delta*v.hours):'—'}</td></tr>`;
+    });
+    html+='</tbody></table></div>';
+    wrap.innerHTML=html;
+    wrap.querySelectorAll('input.hrs').forEach(inp=>inp.addEventListener('input',e=>{
+      const i=+e.target.dataset.i; S.winVMs[i].hours=Math.max(0,parseFloat(e.target.value)||0);
+      recalcUplift();
+      if (S.winVMs[i].delta!==null) $('vmU'+i).textContent=fmt(S.winVMs[i].delta*S.winVMs[i].hours);
+      update();
+    }));
+  }
+  update();
+  renderServices();
+}
+
+function update(){
+  const uplift=currentUplift();
+  const base=S.retail+uplift;
+  const d=parseFloat($('discSlider').value)/100;
+  const csp=base*(1-d);
+  const be=base>0?Math.max(0,1-(S.current/base)):0;
+
+  $('discLabel').textContent=(d*100).toFixed(1)+'%';
+  $('kpiCurrent').textContent=fmt(S.current);
+  $('kpiRetail').textContent=fmt(S.retail);
+  $('kpiUplift').textContent=fmt(uplift);
+  $('kpiUpliftNote').textContent=$('ahbToggle').checked?'AHB applied — no uplift payable'
+    :(S.winVMs.length?S.winVMs.length+' Windows VM(s)':'no inventory / override');
+  $('kpiCsp').textContent=fmt(csp);
+  $('beLabel').textContent=(be*100).toFixed(1)+'%';
+
+  // slider visuals: position break-even on the 0–30% scale
+  const pct=Math.min(100,(be*100)/30*100);
+  $('beTick').style.left=`calc(${Math.min(100,pct).toFixed(2)}% - 1px)`;
+  $('track').style.background=`linear-gradient(to right, var(--bad-soft) 0%, var(--bad-soft) ${pct.toFixed(2)}%, var(--good-soft) ${pct.toFixed(2)}%, var(--good-soft) 100%)`;
+
+  const delta=S.current-csp; // positive = CSP cheaper
+  const banner=$('verdictBanner');
+  const beReachable = be*100<=30;
+  if (delta>=0){
+    banner.className='verdict-banner good';
+    $('verdictTitle').textContent='CSP wins at this discount';
+    $('verdictSub').textContent=`At ${(d*100).toFixed(1)}% partner discount, Azure Plan comes in below the current Dev/Test spend.`;
+    $('verdictDelta').textContent='− '+fmt(Math.abs(delta));
+  } else {
+    banner.className='verdict-banner bad';
+    $('verdictTitle').textContent='Dev/Test still cheaper at this discount';
+    $('verdictSub').textContent=beReachable
+      ? `The discount needs to reach ${(be*100).toFixed(1)}% before Azure Plan beats the Dev/Test rates.`
+      : `Break-even is ${(be*100).toFixed(1)}% — beyond a realistic pass-through. Dev/Test rates dominate this estate.`;
+    $('verdictDelta').textContent='+ '+fmt(Math.abs(delta));
+  }
+}
+
+function renderServices(){
+  const tb=$('svcTable').querySelector('tbody');
+  const tf=$('svcTable').querySelector('tfoot');
+  const maxRetail=Math.max(...S.services.map(s=>s.retail),1);
+  tb.innerHTML=S.services.map(s=>{
+    const saving=s.retail-s.current;
+    return `<tr><td>${esc(s.name)}</td><td class="r num">${fmt(s.current)}</td><td class="r num">${fmt(s.retail)}</td>
+    <td class="r num ${saving>0.5?'delta-neg':''}">${saving>0.5?fmt(saving):'—'}</td>
+    <td><div class="bar-bg"><div class="bar" style="width:${(s.retail/maxRetail*100).toFixed(1)}%"></div></div></td></tr>`;
+  }).join('');
+  const totSave=S.retail-S.current;
+  tf.innerHTML=`<tr><td>Total</td><td class="r num">${fmt(S.current)}</td><td class="r num">${fmt(S.retail)}</td><td class="r num">${fmt(totSave)}</td><td></td></tr>`;
+}
+
+/* ================= summary copy ================= */
+function buildSummary(){
+  const uplift=currentUplift(), base=S.retail+uplift;
+  const d=parseFloat($('discSlider').value)/100, csp=base*(1-d);
+  const be=base>0?Math.max(0,1-(S.current/base))*100:0;
+  return [
+    'Dev/Test → CSP Azure Plan break-even analysis',
+    '='.repeat(46),
+    `Current Dev/Test spend (month analysed): ${fmt(S.current)}`,
+    `Repriced at PAYG retail:                 ${fmt(S.retail)}`,
+    `Windows licensing uplift:                ${fmt(uplift)}${$('ahbToggle').checked?' (AHB applied)':''}`,
+    `CSP cost at ${(d*100).toFixed(1)}% discount:            ${fmt(csp)}`,
+    `Monthly delta (CSP vs Dev/Test):         ${csp<=S.current?'−':'+'}${fmt(Math.abs(S.current-csp))}`,
+    `Break-even CSP discount:                 ${be.toFixed(1)}%`,
+    '',
+    'Excluded (marketplace/purchases, bill identically): '+fmt(S.excluded),
+    'Notes: PAYG retail is the conservative comparator; reservations/savings plans on Azure Plan can improve the CSP case. Dev/Test carries no SLA and prohibits production use.'
+  ].join('\n');
+}
+
+/* ================= demo data ================= */
+function demoData(){
+  const H='SubscriptionName,MeterId,MeterCategory,MeterSubCategory,MeterName,Quantity,EffectivePrice,UnitPrice,PayGPrice,CostInBillingCurrency,BillingCurrency,ResourceLocation,ChargeType,PublisherType,ResourceId,UnitOfMeasure\n';
+  const rows=[];
+  const vm=(rid,qty,eff,payg,cat='Virtual Machines',sub='Dsv5 Series',mn='D4s v5')=>rows.push(`Contoso Dev,MTR-${rid},${cat},${sub},${mn},${qty},${eff},${eff},${payg},${(qty*eff).toFixed(2)},GBP,uksouth,Usage,Azure,/subscriptions/x/resourceGroups/rg-dev/providers/Microsoft.Compute/virtualMachines/${rid},1 Hour`);
+  vm('vm-build-01',640,0.171,0.171); vm('vm-build-02',720,0.171,0.171);
+  vm('vm-sql-dev',700,0.342,0.342,'Virtual Machines','Esv5 Series','E8s v5');
+  vm('vm-web-tst',500,0.086,0.086,'Virtual Machines','Dsv5 Series','D2s v5');
+  rows.push(`Contoso Dev,MTR-sqldb,SQL Database,Single Standard,S3 DTUs,30,3.20,3.20,6.40,96.00,GBP,uksouth,Usage,Azure,/subscriptions/x/rg/sqldb,1/Day`);
+  rows.push(`Contoso Dev,MTR-appsvc,Azure App Service,Standard Plan,S1 App,730,0.055,0.055,0.095,40.15,GBP,uksouth,Usage,Azure,/subscriptions/x/rg/app,1 Hour`);
+  rows.push(`Contoso Dev,MTR-stor,Storage,Standard SSD Managed Disks,E10 Disks,12,4.80,4.80,4.80,57.60,GBP,uksouth,Usage,Azure,/subscriptions/x/rg/disks,1/Month`);
+  rows.push(`Contoso Dev,MTR-bw,Bandwidth,Rtn Preference: MGN,Standard Data Transfer Out,180,0.065,0.065,0.065,11.70,GBP,uksouth,Usage,Azure,/subscriptions/x/rg/net,1 GB`);
+  rows.push(`Contoso Dev,MTR-mkt,Marketplace,SaaS,Some ISV Tool,1,120,120,120,120.00,GBP,uksouth,Usage,Marketplace,/subscriptions/x/rg/isv,1/Month`);
+  const cost=H+rows.join('\n');
+  const inv='name,vmSize,osType,location\nvm-build-01,Standard_D4s_v5,Windows,uksouth\nvm-build-02,Standard_D4s_v5,Windows,uksouth\nvm-sql-dev,Standard_E8s_v5,Windows,uksouth\nvm-web-tst,Standard_D2s_v5,Linux,uksouth';
+  return {cost,inv};
+}
+
+/* ================= wiring ================= */
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function setStatus(t){$('status').textContent=t;}
+function showWarn(t){const w=$('warnBox');w.textContent=t;w.style.display='block';}
+function hideWarn(){$('warnBox').style.display='none';}
+
+function wireDropzone(dzId,inputId,tagId,key){
+  const dz=$(dzId),inp=$(inputId);
+  const setFile=f=>{S[key]=f;$(tagId).textContent=f.name;dz.classList.add('loaded');$('btnAnalyse').disabled=!S.costFile;};
+  dz.addEventListener('click',()=>inp.click());
+  dz.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();inp.click();}});
+  inp.addEventListener('change',()=>{if(inp.files[0])setFile(inp.files[0]);});
+  ['dragover','dragenter'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('drag');}));
+  ['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove('drag');}));
+  dz.addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(f)setFile(f);});
+}
+wireDropzone('dzCost','fileCost','tagCost','costFile');
+wireDropzone('dzInv','fileInv','tagInv','invFile');
+
+$('btnAnalyse').addEventListener('click',analyse);
+$('btnDemo').addEventListener('click',()=>{
+  const d=demoData();
+  S.costFile=d.cost;S.invFile=d.inv;
+  $('tagCost').textContent='demo-cost-export.csv';$('dzCost').classList.add('loaded');
+  $('tagInv').textContent='demo-vm-inventory.csv';$('dzInv').classList.add('loaded');
+  $('btnAnalyse').disabled=false;
+  analyse();
+});
+$('discSlider').addEventListener('input',update);
+$('ahbToggle').addEventListener('change',update);
+$('upliftOverride').addEventListener('input',update);
+$('btnCopy').addEventListener('click',async()=>{
+  try{await navigator.clipboard.writeText(buildSummary());$('copyDone').textContent='Copied ✓';}
+  catch(e){$('copyDone').textContent='Copy failed — select and copy manually.';}
+  setTimeout(()=>$('copyDone').textContent='',2500);
+});
+</script>
+</body>
+</html>
