@@ -45,6 +45,22 @@ Dev/Test subscriptions **cannot buy reserved instances** — Azure Plan can. Tha
 
 The reservation saving reduces the CSP base **before** the partner discount, and folds into the KPI row, the verdict, the break-even, and the copied summary.
 
+## All-up business case
+
+A consolidated panel rolls everything together **per month and annualised**:
+
+- Current Dev/Test spend vs the Azure Plan (CSP) cost (already including the Windows uplift and reservations).
+- The **direct saving from moving**, with the reservation contribution shown as a memo line.
+- A **support / SLA opportunity value** — an editable **% of current spend** (default 10%) representing the risk currently carried by running these workloads with *no SLA and no support* on Dev/Test, which Azure Plan restores.
+- The **all-up value of moving**, monthly and yearly.
+
+The support value is an assumption you set; everything else is derived from the export and your reservation/discount choices.
+
+## Exporting
+
+- **Download PDF report** — uses the browser's print-to-PDF. The input controls, buttons and slider handle are hidden by a print stylesheet, leaving a clean report (verdict, KPIs, uplift, reservations, all-up business case, service breakdown, caveats). Nothing leaves the browser.
+- **Copy summary to clipboard** — a plain-text summary including the all-up figures.
+
 ## How the comparison works
 
 | Step | Calculation |

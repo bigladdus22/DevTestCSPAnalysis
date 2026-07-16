@@ -150,6 +150,22 @@ td select.term:focus-visible,td input.qty:focus-visible{outline:2px solid var(--
 .status{font-size:13px;font-family:var(--mono);color:var(--ink-faint);margin-top:10px;min-height:18px}
 footer{border-top:1px solid var(--line);padding:20px 0 40px;color:var(--ink-faint);font-size:12.5px}
 footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+
+/* ---------- print / PDF ---------- */
+@media print{
+  *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+  body{background:#fff;font-size:11.5px}
+  header{padding:14px 0}
+  main{padding:10px 0 0}
+  .privacy,#inputPanel,.actions,#reservAll,.slider-zone input[type=range],
+  #warnBox,#status,.be-tick::after{display:none!important}
+  .panel,.kpi,.verdict,#allupTable,table{break-inside:avoid}
+  .panel{border-color:#ccc;margin-bottom:12px;padding:14px 16px}
+  #results{display:block!important}
+  td select.term,td input.qty,td input.hrs,#supportPct,#resDisc1,#resDisc2,#resDisc3,#upliftOverride{
+    border:none;background:transparent;-webkit-appearance:none;appearance:none;font-weight:600;padding:0}
+  a[href]:after{content:''}
+}
 </style>
 </head>
 <body>
@@ -167,7 +183,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 <main class="wrap">
 
   <!-- STEP 1: inputs -->
-  <section class="panel">
+  <section class="panel" id="inputPanel">
     <h2><span class="step">01</span>Provide usage data</h2>
     <p class="sub">Export one full month at subscription scope, daily granularity. Prefer a scheduled <strong>"Cost and usage details (actual cost)"</strong> export — it includes a <code>PayGPrice</code> column, so savings are computed entirely offline. A <strong>Cost analysis → Download (CSV)</strong> works too, but it lacks unit prices, so the tool must fetch retail rates from the Azure Retail Prices API (which some corporate networks block — in that case savings can't be shown).</p>
     <div class="dz-row">
@@ -261,9 +277,24 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
       <div id="reservTableWrap"><p class="hint" id="reservHint">No reservable compute detected yet — analyse a subscription with Virtual Machines usage.</p></div>
     </section>
 
+    <!-- all-up business case -->
+    <section class="panel" id="allupPanel">
+      <h2><span class="step">04</span>All-up business case</h2>
+      <p class="sub">Everything rolled together at the selected discount and reservation choices — per month and annualised. The support value is your estimate of the risk currently carried by running these workloads with <strong>no SLA and no support</strong> on Dev/Test; Azure Plan restores both.</p>
+      <div class="toggle-row">
+        <span class="inline-input">Support / SLA opportunity value <input type="number" id="supportPct" min="0" max="100" step="1" value="10">% of current spend</span>
+        <span class="hint" id="supportNote">—</span>
+      </div>
+      <div style="overflow-x:auto"><table id="allupTable">
+        <thead><tr><th>Line</th><th class="r">Per month</th><th class="r">Per year</th></tr></thead>
+        <tbody></tbody>
+        <tfoot></tfoot>
+      </table></div>
+    </section>
+
     <!-- service breakdown -->
     <section class="panel">
-      <h2><span class="step">04</span>Where the Dev/Test discount is earning its keep</h2>
+      <h2><span class="step">05</span>Where the Dev/Test discount is earning its keep</h2>
       <p class="sub">Current cost vs retail repricing by service. Large deltas are the services whose Dev/Test rates the CSP discount has to beat.</p>
       <div style="overflow-x:auto"><table id="svcTable">
         <thead><tr><th>Service</th><th class="r">Current (Dev/Test)</th><th class="r">Retail (PAYG)</th><th class="r">Dev/Test saving</th><th style="width:22%">Share of retail spend</th></tr></thead>
@@ -274,7 +305,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 
     <!-- caveats -->
     <section class="panel">
-      <h2><span class="step">05</span>What the numbers can't show</h2>
+      <h2><span class="step">06</span>What the numbers can't show</h2>
       <ul class="note-list">
         <li><strong>No SLA on Dev/Test.</strong> Dev/Test offers carry no financially-backed SLA. Azure Plan (CSP) restores standard SLAs — worth real money if these workloads matter.</li>
         <li><strong>Production is prohibited on Dev/Test.</strong> If any of this estate is quietly running production, moving to CSP is a compliance fix, not just a commercial choice.</li>
@@ -286,6 +317,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
     </section>
 
     <div class="actions">
+      <button class="btn-primary" id="btnPDF">Download PDF report</button>
       <button class="btn-ghost" id="btnCopy">Copy summary to clipboard</button>
       <span class="hint" id="copyDone"></span>
     </div>
@@ -847,6 +879,42 @@ function update(){
       : `Break-even is ${(be*100).toFixed(1)}% — beyond a realistic pass-through. Dev/Test rates dominate this estate.`;
     $('verdictDelta').textContent='+ '+fmt(Math.abs(delta));
   }
+
+  // all-up business case (incl. support/SLA opportunity value)
+  const support = currentSupportValue();
+  const allUp = delta + support; // direct saving + value of restored support
+  renderAllup(csp, delta, resSav, support, allUp);
+}
+
+// Value of restored SLA/support on Azure Plan: an editable % of current spend.
+function currentSupportValue(){
+  const el=$('supportPct');
+  const p = el ? parseFloat(el.value) : NaN;
+  const pct = (isFinite(p) && p>=0 && p<=100) ? p : 10;
+  return S.current * pct/100;
+}
+function renderAllup(csp, direct, resSav, support, allUp){
+  if (!$('allupTable')) return;
+  const yr=v=>fmt(v*12);
+  const sign=v=>v>=0?'− ':'+ ';               // saving shown as a reduction
+  const row=(lbl,m,cls,memo)=>`<tr><td${memo?' class="hint" style="padding-left:26px"':''}>${lbl}</td>`
+    +`<td class="r num ${cls||''}">${fmt(m)}</td><td class="r num ${cls||''}">${yr(m)}</td></tr>`;
+  const tb=$('allupTable').querySelector('tbody');
+  tb.innerHTML =
+      row('Current Dev/Test spend', S.current)
+    + row('Azure Plan (CSP) cost — incl. Windows uplift &amp; reservations', csp)
+    + `<tr><td>Direct saving from moving</td>`
+      + `<td class="r num ${direct>=0?'delta-pos':'delta-neg'}">${sign(direct)}${fmt(Math.abs(direct))}</td>`
+      + `<td class="r num ${direct>=0?'delta-pos':'delta-neg'}">${sign(direct)}${fmt(Math.abs(direct)*12)}</td></tr>`
+    + (resSav>0.5?row('— of which reservation saving (Azure Plan only)', resSav, '', true):'')
+    + `<tr><td>Support / SLA opportunity value restored</td>`
+      + `<td class="r num delta-pos">− ${fmt(support)}</td><td class="r num delta-pos">− ${fmt(support*12)}</td></tr>`;
+  const tf=$('allupTable').querySelector('tfoot');
+  const cls=allUp>=0?'delta-pos':'delta-neg';
+  tf.innerHTML=`<tr><td>All-up value of moving to Azure Plan</td>`
+    +`<td class="r num ${cls}">${sign(allUp)}${fmt(Math.abs(allUp))}</td>`
+    +`<td class="r num ${cls}">${sign(allUp)}${fmt(Math.abs(allUp)*12)}</td></tr>`;
+  $('supportNote').textContent = `= ${fmt(support)}/mo · ${fmt(support*12)}/yr`;
 }
 
 function renderServices(){
@@ -871,6 +939,10 @@ function buildSummary(){
   const be=base>0?Math.max(0,1-(S.current/base))*100:0;
   const resLines=S.reserv.filter(v=>v.term!=='none' && reservedCost(v).saving>0.5)
     .map(v=>`  · ${v.sku} (${v.region}) ${v.term==='1y'?'1-yr':'3-yr'} ×${v.qty}: −${fmt(reservedCost(v).saving)}/mo`);
+  const support=currentSupportValue();
+  const direct=S.current-csp;
+  const allUp=direct+support;
+  const yr=v=>fmt(v*12);
   return [
     'Dev/Test → CSP Azure Plan break-even analysis',
     '='.repeat(46),
@@ -880,11 +952,17 @@ function buildSummary(){
     `Reservation saving (Azure Plan):         ${resSav>0?'−'+fmt(resSav):fmt(0)}`,
     ...(resLines.length?resLines:[]),
     `CSP cost at ${(d*100).toFixed(1)}% discount:            ${fmt(csp)}`,
-    `Monthly delta (CSP vs Dev/Test):         ${csp<=S.current?'−':'+'}${fmt(Math.abs(S.current-csp))}`,
+    `Monthly delta (CSP vs Dev/Test):         ${direct>=0?'−':'+'}${fmt(Math.abs(direct))}`,
     `Break-even CSP discount:                 ${be.toFixed(1)}%`,
     '',
+    'All-up business case',
+    '-'.repeat(46),
+    `Direct saving from moving:      ${direct>=0?'−':'+'}${fmt(Math.abs(direct))} /mo   ${direct>=0?'−':'+'}${fmt(Math.abs(direct)*12)} /yr`,
+    `Support / SLA opportunity value: −${fmt(support)} /mo   −${yr(support)} /yr`,
+    `All-up value of moving:          ${allUp>=0?'−':'+'}${fmt(Math.abs(allUp))} /mo   ${allUp>=0?'−':'+'}${fmt(Math.abs(allUp)*12)} /yr`,
+    '',
     'Excluded (marketplace/purchases, bill identically): '+fmt(S.excluded),
-    'Notes: PAYG retail is the conservative comparator. Reservations require Azure Plan (unavailable on Dev/Test) and assume steady-state use of the reserved instances; savings plans are an alternative. Dev/Test carries no SLA and prohibits production use.'
+    'Notes: PAYG retail is the conservative comparator. Reservations require Azure Plan (unavailable on Dev/Test) and assume steady-state use of the reserved instances; savings plans are an alternative. The support/SLA value is an assumption. Dev/Test carries no SLA and prohibits production use.'
   ].join('\n');
 }
 
@@ -943,6 +1021,8 @@ $('reservAll').addEventListener('click',e=>{
 ['resDisc1','resDisc3'].forEach(id=>$(id).addEventListener('input',()=>{
   recalcResRates(); renderReservations(); update();
 }));
+$('supportPct').addEventListener('input',update);
+$('btnPDF').addEventListener('click',()=>window.print());
 $('btnCopy').addEventListener('click',async()=>{
   try{await navigator.clipboard.writeText(buildSummary());$('copyDone').textContent='Copied ✓';}
   catch(e){$('copyDone').textContent='Copy failed — select and copy manually.';}
