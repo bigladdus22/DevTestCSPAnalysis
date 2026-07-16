@@ -102,7 +102,7 @@ input[type=range]:focus-visible{outline:2px solid var(--azure);outline-offset:6p
 .scale{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;color:var(--ink-faint);margin-top:2px}
 
 /* ---------- KPI row ---------- */
-.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:18px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:18px}
 @media(max-width:860px){.kpis{grid-template-columns:repeat(2,1fr)}}
 .kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px}
 .kpi .lbl{font-size:11.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-faint);margin-bottom:6px}
@@ -130,14 +130,23 @@ tfoot td{font-weight:600;border-top:2px solid var(--ink);border-bottom:none}
 .inline-input input:focus-visible{outline:2px solid var(--azure);outline-offset:1px}
 .pill{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.05em;border-radius:999px;padding:2px 9px}
 .pill.win{background:var(--azure-soft);color:var(--azure)}
+.pill.res{background:var(--good-soft);color:var(--good)}
 td input.hrs{font-family:var(--mono);width:78px;padding:4px 7px;border:1px solid var(--line);border-radius:5px;font-size:13px;text-align:right}
+td select.term,td input.qty{font-family:var(--sans);padding:4px 7px;border:1px solid var(--line);border-radius:5px;font-size:13px;background:var(--card)}
+td input.qty{font-family:var(--mono);width:64px;text-align:right}
+td select.term:focus-visible,td input.qty:focus-visible{outline:2px solid var(--azure);outline-offset:1px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+.seg button{border:none;border-radius:0;padding:6px 12px;font-size:13px;background:var(--card);color:var(--ink-soft);border-right:1px solid var(--line)}
+.seg button:last-child{border-right:none}
+.seg button.on{background:var(--azure);color:#fff}
+.res-none{color:var(--ink-faint)}
 
 /* ---------- notes / caveats ---------- */
 .note-list{list-style:none}
 .note-list li{padding:9px 0 9px 26px;position:relative;font-size:13.5px;color:var(--ink-soft);border-bottom:1px solid var(--line)}
 .note-list li:last-child{border-bottom:none}
 .note-list li::before{content:'▸';position:absolute;left:6px;color:var(--azure);font-size:12px}
-.warn-box{background:var(--bad-soft);border:1px solid #EAD3AE;border-radius:8px;padding:12px 16px;font-size:13px;color:#7A4A10;margin-top:12px;display:none}
+.warn-box{background:var(--bad-soft);border:1px solid #EAD3AE;border-radius:8px;padding:12px 16px;font-size:13px;color:#7A4A10;margin-top:12px;display:none;white-space:pre-line}
 .status{font-size:13px;font-family:var(--mono);color:var(--ink-faint);margin-top:10px;min-height:18px}
 footer{border-top:1px solid var(--line);padding:20px 0 40px;color:var(--ink-faint);font-size:12.5px}
 footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
@@ -160,7 +169,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
   <!-- STEP 1: inputs -->
   <section class="panel">
     <h2><span class="step">01</span>Provide usage data</h2>
-    <p class="sub">Export one full month from <strong>Cost Management → Cost analysis → Download (CSV)</strong> or a scheduled "Cost and usage details (actual cost)" export, at subscription scope, daily granularity.</p>
+    <p class="sub">Export one full month at subscription scope, daily granularity. Prefer a scheduled <strong>"Cost and usage details (actual cost)"</strong> export — it includes a <code>PayGPrice</code> column, so savings are computed entirely offline. A <strong>Cost analysis → Download (CSV)</strong> works too, but it lacks unit prices, so the tool must fetch retail rates from the Azure Retail Prices API (which some corporate networks block — in that case savings can't be shown).</p>
     <div class="dz-row">
       <div class="dropzone" id="dzCost" tabindex="0" role="button" aria-label="Upload cost and usage CSV">
         <strong>Cost &amp; usage CSV</strong>
@@ -171,7 +180,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
       <div class="dropzone" id="dzInv" tabindex="0" role="button" aria-label="Upload VM inventory CSV">
         <span class="dz-optional">Optional</span>
         <strong>VM inventory CSV</strong>
-        <span>Resource Graph export with name, vmSize, osType, location — enables the Windows licensing uplift</span>
+        <span>Resource Graph export with name, vmSize, osType, location — enables the Windows licensing uplift and sharpens reservation SKU matching</span>
         <span class="file-tag" id="tagInv"></span>
         <input type="file" id="fileInv" accept=".csv" hidden>
       </div>
@@ -179,7 +188,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
     <div class="actions">
       <button class="btn-primary" id="btnAnalyse" disabled>Analyse subscription</button>
       <button class="btn-ghost" id="btnDemo">Load demo data</button>
-      <span class="hint">Inventory query: <code>Resources | where type =~ 'microsoft.compute/virtualmachines' | project name, vmSize=tostring(properties.hardwareProfile.vmSize), osType=tostring(properties.storageProfile.osDisk.osType), location</code></span>
+      <span class="hint">Inventory query (Resource Graph — <code>vmSize</code> is the ARM SKU used for reservation pricing, <code>location</code> the ARM region): <code>Resources | where type =~ 'microsoft.compute/virtualmachines' | project name, vmSize=tostring(properties.hardwareProfile.vmSize), osType=tostring(properties.storageProfile.osDisk.osType), location=location</code></span>
     </div>
     <div class="status" id="status"></div>
     <div class="warn-box" id="warnBox"></div>
@@ -219,7 +228,8 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
       <div class="kpi"><div class="lbl">Current Dev/Test spend</div><div class="val num" id="kpiCurrent">—</div><div class="note" id="kpiPeriod">per month analysed</div></div>
       <div class="kpi"><div class="lbl">Repriced at retail (PAYG)</div><div class="val num" id="kpiRetail">—</div><div class="note" id="kpiCoverage">—</div></div>
       <div class="kpi"><div class="lbl">Windows licensing uplift</div><div class="val num" id="kpiUplift">—</div><div class="note" id="kpiUpliftNote">—</div></div>
-      <div class="kpi"><div class="lbl">CSP cost at selected discount</div><div class="val num" id="kpiCsp">—</div><div class="note">retail + uplift − discount</div></div>
+      <div class="kpi"><div class="lbl">Reservation savings (Azure Plan)</div><div class="val num" id="kpiResv">—</div><div class="note" id="kpiResvNote">1yr / 3yr commit vs PAYG</div></div>
+      <div class="kpi"><div class="lbl">CSP cost at selected discount</div><div class="val num" id="kpiCsp">—</div><div class="note">retail + uplift − reservations − discount</div></div>
     </div>
 
     <!-- windows uplift -->
@@ -233,9 +243,25 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
       <div id="upliftTableWrap"><p class="hint" id="upliftHint">No VM inventory provided — uplift assumed 0. Add the inventory CSV, or enter a manual override if the estate includes Windows VMs.</p></div>
     </section>
 
+    <!-- reservations -->
+    <section class="panel" id="reservPanel">
+      <h2><span class="step">03</span>Reservation savings on Azure Plan</h2>
+      <p class="sub">Dev/Test can't use reserved instances — Azure Plan (CSP) can. Committing steady-state compute to a 1- or 3-year reservation cuts the CSP rate well below PAYG, which is often what tips the move. Rates below come from the Azure Retail Prices API; pick a term per SKU and the saving folds into the verdict.</p>
+      <div class="toggle-row">
+        <span class="hint">Reserve all at:</span>
+        <span class="seg" id="reservAll" role="group" aria-label="Apply reservation term to all SKUs">
+          <button type="button" data-term="none">None</button>
+          <button type="button" data-term="1y">1-year</button>
+          <button type="button" data-term="3y">3-year</button>
+        </span>
+        <span class="hint">Reserved quantity defaults to the estate's steady-state instance count (monthly hours ÷ 730); adjust per row.</span>
+      </div>
+      <div id="reservTableWrap"><p class="hint" id="reservHint">No reservable compute detected yet — analyse a subscription with Virtual Machines usage.</p></div>
+    </section>
+
     <!-- service breakdown -->
     <section class="panel">
-      <h2><span class="step">03</span>Where the Dev/Test discount is earning its keep</h2>
+      <h2><span class="step">04</span>Where the Dev/Test discount is earning its keep</h2>
       <p class="sub">Current cost vs retail repricing by service. Large deltas are the services whose Dev/Test rates the CSP discount has to beat.</p>
       <div style="overflow-x:auto"><table id="svcTable">
         <thead><tr><th>Service</th><th class="r">Current (Dev/Test)</th><th class="r">Retail (PAYG)</th><th class="r">Dev/Test saving</th><th style="width:22%">Share of retail spend</th></tr></thead>
@@ -246,14 +272,14 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 
     <!-- caveats -->
     <section class="panel">
-      <h2><span class="step">04</span>What the numbers can't show</h2>
+      <h2><span class="step">05</span>What the numbers can't show</h2>
       <ul class="note-list">
         <li><strong>No SLA on Dev/Test.</strong> Dev/Test offers carry no financially-backed SLA. Azure Plan (CSP) restores standard SLAs — worth real money if these workloads matter.</li>
         <li><strong>Production is prohibited on Dev/Test.</strong> If any of this estate is quietly running production, moving to CSP is a compliance fix, not just a commercial choice.</li>
         <li><strong>Visual Studio subscription dependency.</strong> Dev/Test rates require active Visual Studio subscribers. CSP removes that dependency and its per-seat cost.</li>
         <li><strong>Marketplace &amp; purchase charges are excluded</strong> from the repricing — they bill identically on either offer.</li>
         <li><strong>SQL Server on Dev/Test</strong> also bills without the SQL licence meter. If the estate includes SQL VMs, the true CSP cost is higher than shown unless AHB covers SQL too.</li>
-        <li><strong>Reservations &amp; savings plans</strong> are available on Azure Plan and can close the gap further — this tool compares against PAYG retail as the conservative case.</li>
+        <li><strong>Reservations are modelled from public retail rates</strong> and assume steady-state utilisation of the reserved instances. Real commitments carry cancellation/exchange rules and capacity considerations, and a partner may pass additional margin on top — treat the reservation saving as indicative, and size it to genuinely predictable base load only. Savings plans (not modelled here) are an alternative with more flexibility and typically slightly smaller discounts.</li>
       </ul>
     </section>
 
@@ -282,7 +308,9 @@ const S = {
   excluded:0,           // marketplace/purchase spend
   winVMs:[],            // {name,size,region,hours,delta,monthly}
   upliftAuto:0,
-  apiFailed:false
+  reserv:[],            // {sku,region,hours,count,payg,r1,r3,term,qty}
+  apiFailed:false,
+  cappedMeters:0
 };
 const $ = id => document.getElementById(id);
 const fmt = v => new Intl.NumberFormat(undefined,{style:'currency',currency:S.currency,maximumFractionDigits:0}).format(v);
@@ -330,6 +358,7 @@ async function analyse(){
   $('btnAnalyse').disabled = true;
   setStatus('Parsing cost export…');
   hideWarn();
+  S.apiFailed = false; S.cappedMeters = 0;
   try{
     const parsed = typeof S.costFile==='string'
       ? Papa.parse(S.costFile,{header:true,skipEmptyLines:true})
@@ -349,6 +378,7 @@ async function analyse(){
     let current=0, excluded=0;
     const byService = new Map();       // cat -> {current,retail,covered}
     const needLookup = new Map();      // meterId -> {qty,cost,cat,region,name}
+    const vmAgg = new Map();           // sku|region -> {sku,region,hours} (reservable compute)
     let coveredRetail=0, coveredCurrent=0, retail=0;
 
     for (const r of rows){
@@ -364,6 +394,17 @@ async function analyse(){
       if (!byService.has(cat)) byService.set(cat,{name:cat,current:0,retail:0,covered:0});
       const svc = byService.get(cat);
       svc.current += cost;
+
+      // collect VM compute hours by SKU+region for reservation modelling
+      if (/virtual machines/i.test(cat) && qty>0 && (!M.uom || /hour/i.test(String(r[M.uom]||'')))){
+        const sku = skuFromMeter(M.meterName ? r[M.meterName] : '');
+        const region = String((M.region ? r[M.region] : '')||'').toLowerCase().replace(/\s+/g,'');
+        if (sku && region){
+          const k = sku+'|'+region;
+          if (!vmAgg.has(k)) vmAgg.set(k,{sku,region,hours:0});
+          vmAgg.get(k).hours += qty;
+        }
+      }
 
       const payg = M.payg ? parseFloat(r[M.payg]) : NaN;
       if (isFinite(payg) && payg>0 && qty>0){
@@ -381,17 +422,19 @@ async function analyse(){
     }
 
     // Retail Prices API fallback for meters without PayGPrice
+    S.cappedMeters = 0;
     if (needLookup.size){
-      setStatus(`Looking up retail rates for ${needLookup.size} meters via the Azure Retail Prices API…`);
-      let done=0;
-      const ids=[...needLookup.keys()].slice(0,150);
+      const allIds = [...needLookup.keys()];
+      const CAP = 400;
+      const ids = allIds.slice(0, CAP);
+      S.cappedMeters = allIds.length - ids.length;
+      setStatus(`Looking up retail rates for ${ids.length} meters via the Azure Retail Prices API…`);
+      const prices = await resolveMeterPrices(ids);
       for (const id of ids){
         const nl = needLookup.get(id);
-        const price = await retailByMeter(id);
-        done++;
-        if (done%10===0) setStatus(`Retail lookups: ${done}/${ids.length}…`);
+        const price = prices.get(id);
         const svc = byService.get(nl.cat);
-        if (price!==null && price>0){
+        if (price!==null && price!==undefined && price>0){
           const rr = price*nl.qty;
           retail += rr; svc.retail += rr; svc.covered += nl.cost;
           coveredRetail += rr; coveredCurrent += nl.cost;
@@ -417,6 +460,13 @@ async function analyse(){
       await buildUplift(rows,M);
     }
 
+    // Reservation modelling from the observed VM SKUs (Azure Plan only)
+    S.reserv=[];
+    if (vmAgg.size){
+      setStatus('Pricing reservations…');
+      await buildReservations(vmAgg);
+    }
+
     render();
     setStatus('');
   }catch(err){
@@ -429,30 +479,155 @@ async function analyse(){
 
 /* ================= retail prices api ================= */
 const priceCache = new Map();
-async function retailByMeter(meterId){
-  if (priceCache.has('m:'+meterId)) return priceCache.get('m:'+meterId);
+const RETAIL_BASE = 'https://prices.azure.com/api/retail/prices';
+// Build a fully URL-encoded Retail Prices API request. Spaces and quotes in the
+// OData $filter must be percent-encoded or stricter proxies/gateways reject it.
+function retailUrl(filter){
+  return `${RETAIL_BASE}?currencyCode=${encodeURIComponent(S.currency)}&$filter=${encodeURIComponent(filter)}`;
+}
+// Fetch that fails fast instead of hanging when the API is blocked/unreachable.
+async function fetchJson(url,ms=12000){
+  const ctl = new AbortController();
+  const t = setTimeout(()=>ctl.abort(),ms);
   try{
-    const url = `https://prices.azure.com/api/retail/prices?currencyCode=${S.currency}&$filter=meterId eq '${meterId}' and priceType eq 'Consumption'`;
-    const r = await fetch(url); if(!r.ok) throw 0;
-    const j = await r.json();
-    const item = (j.Items||[]).find(i=>!/spot|low priority/i.test(i.skuName||''));
-    const p = item ? item.retailPrice : null;
-    priceCache.set('m:'+meterId,p); return p;
-  }catch(e){ S.apiFailed=true; priceCache.set('m:'+meterId,null); return null; }
+    const r = await fetch(url,{signal:ctl.signal});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    return await r.json();
+  } finally { clearTimeout(t); }
+}
+
+// Resolve retail prices for many meterIds at once. The old code fired one request
+// per meter (up to 150, then silently dropped the rest); on flaky or rate-limited
+// networks most of those failed, so nothing had a comparator and savings read as
+// zero. Batching with OData `or` collapses ~hundreds of requests into a handful,
+// which is both faster and far more likely to succeed.
+async function resolveMeterPrices(ids){
+  const out = new Map();
+  const todo = [];
+  for (const id of ids){
+    if (priceCache.has('m:'+id)) out.set(id, priceCache.get('m:'+id));
+    else todo.push(id);
+  }
+  const CHUNK = 20;
+  for (let i=0;i<todo.length;i+=CHUNK){
+    const chunk = todo.slice(i,i+CHUNK);
+    const filter = "priceType eq 'Consumption' and ("
+      + chunk.map(id=>`meterId eq '${String(id).replace(/'/g,"''")}'`).join(' or ') + ")";
+    try{
+      const byId = new Map();
+      let next = retailUrl(filter), guard = 0;
+      while (next && guard++ < 6){
+        const j = await fetchJson(next);
+        for (const it of (j.Items||[])){
+          if (/spot|low priority/i.test(it.skuName||'')) continue;
+          // keep the lowest consumption price seen for the meter
+          const prev = byId.get(it.meterId);
+          if (prev===undefined || it.retailPrice<prev) byId.set(it.meterId,it.retailPrice);
+        }
+        next = j.NextPageLink || null;
+      }
+      for (const id of chunk){
+        const p = byId.has(id)?byId.get(id):null;
+        priceCache.set('m:'+id,p); out.set(id,p);
+      }
+    }catch(e){
+      S.apiFailed=true;
+      for (const id of chunk){ priceCache.set('m:'+id,null); out.set(id,null); }
+    }
+    setStatus(`Retail lookups: ${Math.min(i+CHUNK,todo.length)}/${todo.length}…`);
+  }
+  return out;
 }
 async function vmPricePair(size,region){
   const key = `v:${size}:${region}`;
   if (priceCache.has(key)) return priceCache.get(key);
   try{
-    const url = `https://prices.azure.com/api/retail/prices?currencyCode=${S.currency}&$filter=armSkuName eq '${size}' and armRegionName eq '${region}' and priceType eq 'Consumption' and serviceName eq 'Virtual Machines'`;
-    const r = await fetch(url); if(!r.ok) throw 0;
-    const j = await r.json();
+    const filter = `armSkuName eq '${size}' and armRegionName eq '${region}' and priceType eq 'Consumption' and serviceName eq 'Virtual Machines'`;
+    const j = await fetchJson(retailUrl(filter));
     const items=(j.Items||[]).filter(i=>!/spot|low priority/i.test((i.skuName||'')+(i.meterName||'')));
     const win = items.find(i=>/windows/i.test(i.productName||''));
     const lin = items.find(i=>!/windows|cloudserver/i.test(i.productName||''));
     const pair = (win&&lin)?{delta:Math.max(0,win.retailPrice-lin.retailPrice)}:null;
     priceCache.set(key,pair); return pair;
   }catch(e){ S.apiFailed=true; priceCache.set(key,null); return null; }
+}
+
+// PAYG + reservation rates for a VM SKU. Reservation retailPrice from the API is
+// the total price for the whole term, so the monthly-equivalent is that total
+// divided by the term's months (12 for 1-Year, 36 for 3-Years). Reservations
+// cover the compute only (OS licensing is handled separately in the uplift), so
+// we take the cheapest Linux/base rate per term.
+async function vmRates(sku,region){
+  const key = `rt:${sku}:${region}`;
+  if (priceCache.has(key)) return priceCache.get(key);
+  try{
+    const filter = `armSkuName eq '${sku}' and armRegionName eq '${region}' and serviceName eq 'Virtual Machines' and (priceType eq 'Consumption' or priceType eq 'Reservation')`;
+    let items=[], next=retailUrl(filter), guard=0;
+    while (next && guard++ < 6){
+      const j = await fetchJson(next);
+      items = items.concat(j.Items||[]);
+      next = j.NextPageLink || null;
+    }
+    const clean = items.filter(i=>!/spot|low priority/i.test((i.skuName||'')+(i.meterName||'')));
+    const payItems = clean.filter(i=>i.priceType==='Consumption' && !/windows/i.test(i.productName||''));
+    const payg = payItems.length ? Math.min(...payItems.map(i=>i.retailPrice)) : null;
+    const termMonthly = (label,months)=>{
+      const r = clean.filter(i=>i.priceType==='Reservation' && i.reservationTerm===label);
+      return r.length ? Math.min(...r.map(i=>i.retailPrice))/months : null;
+    };
+    const rates = { payg, r1:termMonthly('1 Year',12), r3:termMonthly('3 Years',36) };
+    priceCache.set(key,rates); return rates;
+  }catch(e){ S.apiFailed=true; priceCache.set(key,null); return null; }
+}
+
+// "D4s v5" (meter name) -> "Standard_D4s_v5" (ARM SKU the Retail API expects).
+function skuFromMeter(meterName){
+  const mn = String(meterName||'').trim();
+  if (!mn) return null;
+  if (/^standard_/i.test(mn)) return mn;
+  return 'Standard_'+mn.replace(/\s+/g,'_');
+}
+
+/* ================= reservation modelling ================= */
+// Azure bills a reservation as `qty` instances × 730 hrs/month at the reserved
+// rate; hours beyond that fall back to PAYG. Saving = PAYG-priced hours − that.
+function reservedCost(v){
+  const paygCost = v.payg!=null ? v.payg*v.hours : 0;
+  if (v.term==='none' || v.payg==null) return {paygCost, resCost:paygCost, saving:0};
+  const rM = v.term==='1y' ? v.r1 : v.r3;
+  if (rM==null) return {paygCost, resCost:paygCost, saving:0};
+  const overage = Math.max(0, v.hours - v.qty*730);
+  const resCost = v.qty*rM + overage*v.payg;
+  return {paygCost, resCost, saving:paygCost-resCost};
+}
+function bestTerm(v){
+  if (v.payg==null) return 'none';
+  let best='none', bs=0;
+  for (const t of ['1y','3y']){
+    const s = reservedCost({...v,term:t}).saving;
+    if (s>bs){ bs=s; best=t; }
+  }
+  return best;
+}
+function currentReservationSavings(){
+  return Math.max(0, S.reserv.reduce((t,v)=>t+reservedCost(v).saving,0));
+}
+async function buildReservations(vmAgg){
+  S.reserv = [];
+  const groups = [...vmAgg.values()].filter(g=>g.hours>0).sort((a,b)=>b.hours-a.hours).slice(0,60);
+  let done=0;
+  for (const g of groups){
+    setStatus(`Pricing reservations: ${++done}/${groups.length} SKUs…`);
+    const rates = await vmRates(g.sku,g.region);
+    const count = Math.max(1, Math.round(g.hours/730));
+    const item = {
+      sku:g.sku, region:g.region, hours:Math.round(g.hours), count, qty:count,
+      payg: rates?rates.payg:null, r1: rates?rates.r1:null, r3: rates?rates.r3:null,
+      term:'none'
+    };
+    item.term = bestTerm(item); // default to the best-saving term to surface the incentive
+    S.reserv.push(item);
+  }
 }
 
 async function buildUplift(costRows,M){
@@ -509,7 +684,20 @@ function render(){
   const covPct = S.current>0 ? (S.coveredCurrent/S.current*100) : 0;
   $('kpiCoverage').textContent = covPct>=99.5 ? 'full retail comparator coverage'
     : `${covPct.toFixed(0)}% of spend had a retail comparator`;
-  if (S.apiFailed) showWarn('Some retail rate lookups failed (the Retail Prices API may be unreachable from this network). Lines without a comparator are treated as having no Dev/Test discount — the break-even shown is conservative.');
+
+  // Explain WHY savings may be missing, and how to fix it. The common cause is a
+  // CSV with no PayGPrice column combined with a network that blocks the Retail
+  // Prices API — in that case every line has no comparator, so savings read as 0.
+  const warnings = [];
+  if (S.apiFailed && covPct < 99.5){
+    warnings.push('The Azure Retail Prices API could not be reached from this network, so retail rates for some meters are unknown. Those lines are treated as having no Dev/Test discount, which understates the savings and the break-even shown. Fix: export "Cost Management → Cost analysis → Cost and usage details (actual cost)" — that file includes a PayGPrice column and is priced entirely offline, no API needed.');
+  } else if (covPct < 50){
+    warnings.push('Only '+covPct.toFixed(0)+'% of spend had a retail (PayG) comparator, so the Dev/Test saving is likely understated. Use the "Cost and usage details (actual cost)" export, which includes a PayGPrice column for every line.');
+  }
+  if (S.cappedMeters>0){
+    warnings.push(`Priced the first 400 distinct meters via the API; ${S.cappedMeters} further meter(s) are shown at no Dev/Test delta, so the break-even is conservative.`);
+  }
+  if (warnings.length) showWarn(warnings.join('\n\n'));
 
   // uplift table
   const wrap=$('upliftTableWrap');
@@ -530,13 +718,60 @@ function render(){
       update();
     }));
   }
+  renderReservations();
   update();
   renderServices();
 }
 
+function renderReservations(){
+  const wrap=$('reservTableWrap');
+  if (!S.reserv.length){
+    wrap.innerHTML='<p class="hint" id="reservHint">No reservable compute detected — Virtual Machines usage is needed to model reservations. (If VMs are present but this is empty, the Retail Prices API may be unreachable.)</p>';
+    return;
+  }
+  const termPct=(v,rM)=>rM!=null && v.payg? Math.max(0,(1-rM/(v.payg*730))*100):null;
+  const priceCell=(v,rM)=>{
+    if (rM==null) return '<span class="hint">n/a</span>';
+    const pc=termPct(v,rM);
+    return `${fmt(rM)}<span class="hint">/mo${pc!=null?` · −${pc.toFixed(0)}%`:''}</span>`;
+  };
+  let html='<div style="overflow-x:auto"><table><thead><tr><th>SKU</th><th>Region</th><th class="r">Hours / month</th><th class="r">PAYG / mo</th><th class="r">1-year</th><th class="r">3-year</th><th>Reserve</th><th class="r">Qty</th><th class="r">Monthly saving</th></tr></thead><tbody>';
+  S.reserv.forEach((v,i)=>{
+    const paygMonthly=v.payg!=null?v.payg*v.hours:null;
+    const sav=reservedCost(v).saving;
+    const opt=(val,lbl)=>`<option value="${val}"${v.term===val?' selected':''}>${lbl}</option>`;
+    html+=`<tr>
+      <td><span class="pill res">VM</span> <span class="num">${esc(v.sku)}</span></td>
+      <td class="num">${esc(v.region)}</td>
+      <td class="r num">${v.hours}</td>
+      <td class="r num">${paygMonthly!=null?fmt(paygMonthly):'<span class="hint">n/a</span>'}</td>
+      <td class="r num">${priceCell(v,v.r1)}</td>
+      <td class="r num">${priceCell(v,v.r3)}</td>
+      <td><select class="term" data-i="${i}" aria-label="Reservation term for ${esc(v.sku)}">${opt('none','None')}${opt('1y','1-year')}${opt('3y','3-year')}</select></td>
+      <td class="r"><input class="qty num" data-i="${i}" type="number" min="0" max="9999" value="${v.qty}"></td>
+      <td class="r num ${sav>0.5?'delta-pos':(v.term!=='none'?'res-none':'')}" id="resS${i}">${v.term==='none'?'—':(sav>0.5?'− '+fmt(sav):fmt(sav))}</td>
+    </tr>`;
+  });
+  html+='</tbody><tfoot><tr><td colspan="8">Total reservation saving (selected terms)</td><td class="r num" id="resTotal">—</td></tr></tfoot></table></div>';
+  wrap.innerHTML=html;
+  wrap.querySelectorAll('select.term').forEach(sel=>sel.addEventListener('change',e=>{
+    S.reserv[+e.target.dataset.i].term=e.target.value; update();
+  }));
+  wrap.querySelectorAll('input.qty').forEach(inp=>inp.addEventListener('input',e=>{
+    S.reserv[+e.target.dataset.i].qty=Math.max(0,parseInt(e.target.value,10)||0); update();
+  }));
+}
+
+function applyAllTerms(term){
+  S.reserv.forEach(v=>{ v.term = (term!=='none' && (term==='1y'?v.r1:v.r3)==null) ? 'none' : term; });
+  renderReservations(); update();
+}
+
 function update(){
   const uplift=currentUplift();
-  const base=S.retail+uplift;
+  const resSav=currentReservationSavings();
+  // reservations reduce the CSP base before the partner discount is applied
+  const base=Math.max(0,S.retail+uplift-resSav);
   const d=parseFloat($('discSlider').value)/100;
   const csp=base*(1-d);
   const be=base>0?Math.max(0,1-(S.current/base)):0;
@@ -547,8 +782,24 @@ function update(){
   $('kpiUplift').textContent=fmt(uplift);
   $('kpiUpliftNote').textContent=$('ahbToggle').checked?'AHB applied — no uplift payable'
     :(S.winVMs.length?S.winVMs.length+' Windows VM(s)':'no inventory / override');
+  $('kpiResv').textContent=resSav>0?'− '+fmt(resSav):fmt(0);
+  const chosen=S.reserv.filter(v=>v.term!=='none' && reservedCost(v).saving>0.5).length;
+  $('kpiResvNote').textContent=S.reserv.length
+    ?(chosen?`${chosen} SKU(s) reserved`:'no term selected')
+    :'no VM usage detected';
   $('kpiCsp').textContent=fmt(csp);
   $('beLabel').textContent=(be*100).toFixed(1)+'%';
+
+  // reflect the per-row and total reservation savings inline
+  if ($('resTotal')){
+    S.reserv.forEach((v,i)=>{
+      const cell=$('resS'+i); if(!cell) return;
+      const s=reservedCost(v).saving;
+      cell.className='r num '+(s>0.5?'delta-pos':(v.term!=='none'?'res-none':''));
+      cell.textContent=v.term==='none'?'—':(s>0.5?'− '+fmt(s):fmt(s));
+    });
+    $('resTotal').textContent=resSav>0?'− '+fmt(resSav):'—';
+  }
 
   // slider visuals: position break-even on the 0–30% scale
   const pct=Math.min(100,(be*100)/30*100);
@@ -589,21 +840,26 @@ function renderServices(){
 
 /* ================= summary copy ================= */
 function buildSummary(){
-  const uplift=currentUplift(), base=S.retail+uplift;
+  const uplift=currentUplift(), resSav=currentReservationSavings();
+  const base=Math.max(0,S.retail+uplift-resSav);
   const d=parseFloat($('discSlider').value)/100, csp=base*(1-d);
   const be=base>0?Math.max(0,1-(S.current/base))*100:0;
+  const resLines=S.reserv.filter(v=>v.term!=='none' && reservedCost(v).saving>0.5)
+    .map(v=>`  · ${v.sku} (${v.region}) ${v.term==='1y'?'1-yr':'3-yr'} ×${v.qty}: −${fmt(reservedCost(v).saving)}/mo`);
   return [
     'Dev/Test → CSP Azure Plan break-even analysis',
     '='.repeat(46),
     `Current Dev/Test spend (month analysed): ${fmt(S.current)}`,
     `Repriced at PAYG retail:                 ${fmt(S.retail)}`,
     `Windows licensing uplift:                ${fmt(uplift)}${$('ahbToggle').checked?' (AHB applied)':''}`,
+    `Reservation saving (Azure Plan):         ${resSav>0?'−'+fmt(resSav):fmt(0)}`,
+    ...(resLines.length?resLines:[]),
     `CSP cost at ${(d*100).toFixed(1)}% discount:            ${fmt(csp)}`,
     `Monthly delta (CSP vs Dev/Test):         ${csp<=S.current?'−':'+'}${fmt(Math.abs(S.current-csp))}`,
     `Break-even CSP discount:                 ${be.toFixed(1)}%`,
     '',
     'Excluded (marketplace/purchases, bill identically): '+fmt(S.excluded),
-    'Notes: PAYG retail is the conservative comparator; reservations/savings plans on Azure Plan can improve the CSP case. Dev/Test carries no SLA and prohibits production use.'
+    'Notes: PAYG retail is the conservative comparator. Reservations require Azure Plan (unavailable on Dev/Test) and assume steady-state use of the reserved instances; savings plans are an alternative. Dev/Test carries no SLA and prohibits production use.'
   ].join('\n');
 }
 
@@ -656,6 +912,9 @@ $('btnDemo').addEventListener('click',()=>{
 $('discSlider').addEventListener('input',update);
 $('ahbToggle').addEventListener('change',update);
 $('upliftOverride').addEventListener('input',update);
+$('reservAll').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(b) applyAllTerms(b.dataset.term);
+});
 $('btnCopy').addEventListener('click',async()=>{
   try{await navigator.clipboard.writeText(buildSummary());$('copyDone').textContent='Copied ✓';}
   catch(e){$('copyDone').textContent='Copy failed — select and copy manually.';}
