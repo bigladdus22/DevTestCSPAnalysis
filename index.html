@@ -140,6 +140,8 @@ td select.term:focus-visible,td input.qty:focus-visible{outline:2px solid var(--
 .seg button:last-child{border-right:none}
 .seg button.on{background:var(--azure);color:#fff}
 .res-none{color:var(--ink-faint)}
+.panel.summary{border-color:var(--azure);box-shadow:0 1px 0 var(--azure) inset}
+.panel.summary tfoot td{font-size:15px}
 
 /* ---------- notes / caveats ---------- */
 .note-list{list-style:none}
@@ -314,6 +316,18 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
         <li><strong>SQL Server on Dev/Test</strong> also bills without the SQL licence meter. If the estate includes SQL VMs, the true CSP cost is higher than shown unless AHB covers SQL too.</li>
         <li><strong>Reservations are modelled from public retail rates</strong> (or, where the Retail Prices API is unreachable, <em>estimated</em> from the export's PAYG rate and the assumed discounts you set) and assume steady-state utilisation of the reserved instances. Real commitments carry cancellation/exchange rules and capacity considerations, and a partner may pass additional margin on top — treat the reservation saving as indicative, and size it to genuinely predictable base load only. Savings plans (not modelled here) are an alternative with more flexibility and typically slightly smaller discounts.</li>
       </ul>
+    </section>
+
+    <!-- live summary capstone -->
+    <section class="panel summary" id="summaryPanel">
+      <h2><span class="step">07</span>Summary</h2>
+      <p class="sub">Live snapshot at the current discount, reservation, uplift and support selections — this table updates as you change anything above.</p>
+      <div style="overflow-x:auto"><table id="summaryTable">
+        <thead><tr><th>Item</th><th class="r">Per month</th><th class="r">Per year</th></tr></thead>
+        <tbody></tbody>
+        <tfoot></tfoot>
+      </table></div>
+      <p class="hint" id="summaryVerdict" style="margin-top:12px"></p>
     </section>
 
     <div class="actions">
@@ -884,6 +898,38 @@ function update(){
   const support = currentSupportValue();
   const allUp = delta + support; // direct saving + value of restored support
   renderAllup(csp, delta, resSav, support, allUp);
+  renderSummary({d, be, current:S.current, csp, uplift, resSav, direct:delta, support, allUp, good:delta>=0});
+}
+
+// Live capstone table reflecting every current selection.
+function renderSummary(o){
+  if (!$('summaryTable')) return;
+  const yr=v=>fmt(v*12);
+  const ctx=(lbl,val)=>`<tr><td>${lbl}</td><td class="r num">${val}</td><td></td></tr>`;
+  const cost=(lbl,m)=>`<tr><td>${lbl}</td><td class="r num">${fmt(m)}</td><td class="r num">${yr(m)}</td></tr>`;
+  const memo=(lbl,m)=>`<tr><td class="hint" style="padding-left:26px">${lbl}</td>`
+    +`<td class="r num hint">${m<0?'− '+fmt(Math.abs(m)):fmt(m)}</td>`
+    +`<td class="r num hint">${m<0?'− '+yr(Math.abs(m)):yr(m)}</td></tr>`;
+  const sav=(lbl,m)=>{ const p=m>=0, c=p?'delta-pos':'delta-neg', s=p?'− ':'+ ';
+    return `<tr><td>${lbl}</td><td class="r num ${c}">${s}${fmt(Math.abs(m))}</td><td class="r num ${c}">${s}${fmt(Math.abs(m)*12)}</td></tr>`; };
+  const tb=$('summaryTable').querySelector('tbody');
+  tb.innerHTML =
+      ctx('CSP partner discount applied', (o.d*100).toFixed(1)+'%')
+    + ctx('Break-even discount', (o.be*100).toFixed(1)+'%')
+    + cost('Current Dev/Test spend', o.current)
+    + cost('Azure Plan (CSP) cost', o.csp)
+    + (o.uplift>0.5?memo('includes Windows licensing uplift', o.uplift):'')
+    + (o.resSav>0.5?memo('includes reservation saving', -o.resSav):'')
+    + sav('Direct saving from moving', o.direct)
+    + sav('Support / SLA opportunity value', o.support);
+  const tf=$('summaryTable').querySelector('tfoot');
+  const p=o.allUp>=0, c=p?'delta-pos':'delta-neg', s=p?'− ':'+ ';
+  tf.innerHTML=`<tr><td>All-up value of moving to Azure Plan</td>`
+    +`<td class="r num ${c}">${s}${fmt(Math.abs(o.allUp))}</td>`
+    +`<td class="r num ${c}">${s}${fmt(Math.abs(o.allUp)*12)}</td></tr>`;
+  $('summaryVerdict').innerHTML = o.good
+    ? `At <strong>${(o.d*100).toFixed(1)}%</strong> partner discount, moving to Azure Plan is worth <strong>${fmt(o.allUp)}/mo</strong> (${fmt(o.allUp*12)}/yr) all-up, including the support/SLA value.`
+    : `At <strong>${(o.d*100).toFixed(1)}%</strong> discount the direct cost is <strong>${fmt(Math.abs(o.direct))}/mo higher</strong> on Azure Plan; break-even is at ${(o.be*100).toFixed(1)}%. Counting the support/SLA value, the all-up position is ${o.allUp>=0?fmt(o.allUp)+'/mo in favour of moving':fmt(Math.abs(o.allUp))+'/mo against'}.`;
 }
 
 // Value of restored SLA/support on Azure Plan: an editable % of current spend.

@@ -56,6 +56,8 @@ A consolidated panel rolls everything together **per month and annualised**:
 
 The support value is an assumption you set; everything else is derived from the export and your reservation/discount choices.
 
+A **Summary** capstone at the bottom of the results restates the whole picture — discount applied, break-even, Dev/Test spend, CSP cost (with the uplift and reservation contributions as memo lines), direct saving, support value and the all-up total — and updates live as you move the discount slider or change any reservation, uplift or support input.
+
 ## Exporting
 
 - **Download PDF report** — uses the browser's print-to-PDF. The input controls, buttons and slider handle are hidden by a print stylesheet, leaving a clean report (verdict, KPIs, uplift, reservations, all-up business case, service breakdown, caveats). Nothing leaves the browser.
