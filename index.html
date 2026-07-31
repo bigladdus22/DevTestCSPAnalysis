@@ -276,6 +276,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
         <span class="inline-input">Assumed 3-yr discount <input type="number" id="resDisc3" min="0" max="90" step="1" value="55">%</span>
       </div>
       <p class="hint" style="margin-bottom:12px">Reserved quantity defaults to the estate's steady-state instance count (monthly hours ÷ 730); adjust per row. Assumed discounts apply only to rows priced offline.</p>
+      <p class="hint" id="invDiag" style="margin-bottom:12px"></p>
       <div id="reservTableWrap"><p class="hint" id="reservHint">No reservable compute detected yet — analyse a subscription with Virtual Machines usage.</p></div>
     </section>
 
@@ -358,7 +359,8 @@ const S = {
   upliftAuto:0,
   reserv:[],            // {sku,region,hours,count,payg,r1,r3,term,qty}
   apiFailed:false,
-  cappedMeters:0
+  cappedMeters:0,
+  invStats:null       // {vms, matched, windows, fromInventory}
 };
 const $ = id => document.getElementById(id);
 const fmt = v => new Intl.NumberFormat(undefined,{style:'currency',currency:S.currency,maximumFractionDigits:0}).format(v);
@@ -505,18 +507,37 @@ async function analyse(){
     S.coveredRetail=coveredRetail; S.coveredCurrent=coveredCurrent;
     S.services=[...byService.values()].sort((a,b)=>b.retail-a.retail);
 
-    // Windows uplift from inventory
-    S.winVMs=[]; S.upliftAuto=0;
-    if (S.invFile){
-      setStatus('Pricing Windows licensing uplift…');
-      await buildUplift(rows,M);
+    // shared: consumed compute hours per VM name from the cost export
+    const hoursByVM = new Map();
+    if (M.resId && M.meterCat){
+      for (const r of rows){
+        if (!/virtual machines/i.test(r[M.meterCat]||'')) continue;
+        const nm = String(r[M.resId]||'').toLowerCase().split('/').pop();
+        const q = parseFloat(r[M.qty])||0;
+        if (nm) hoursByVM.set(nm,(hoursByVM.get(nm)||0)+q);
+      }
     }
 
-    // Reservation modelling from the observed VM SKUs (Azure Plan only)
+    // VM inventory (parsed once, shared by the uplift and reservation modelling)
+    S.winVMs=[]; S.upliftAuto=0; S.invStats=null;
+    const inv = S.invFile ? await getInventory() : null;
+    if (inv){
+      setStatus('Pricing Windows licensing uplift…');
+      await buildUplift(inv, hoursByVM);
+    }
+
+    // Reservation modelling (Azure Plan only). Prefer the inventory's exact ARM
+    // SKUs + instance counts when provided — that's what the inventory is for —
+    // and only fall back to SKUs reconstructed from cost meter names.
+    setStatus('Pricing reservations…');
+    let resGroups = inv ? inventoryReservationGroups(inv, hoursByVM, vmAgg) : null;
+    const fromInventory = !!(resGroups && resGroups.length);
+    if (!fromInventory) resGroups = vmAggToGroups(vmAgg);
     S.reserv=[];
-    if (vmAgg.size){
-      setStatus('Pricing reservations…');
-      await buildReservations(vmAgg);
+    if (resGroups.length) await buildReservations(resGroups);
+    if (inv){
+      const matched = inv.data.filter(r=>hoursByVM.get(String(r[inv.c.name]||'').trim().toLowerCase())>0).length;
+      S.invStats = {vms:inv.data.length, matched, windows:S.winVMs.length, fromInventory};
     }
 
     render();
@@ -681,16 +702,78 @@ function recalcResRates(){
     else { v.r3 = m!=null ? m*(1-d3) : null; v.est3 = v.r3!=null; }
   });
 }
-async function buildReservations(vmAgg){
+// Region/SKU normalisers shared by the cost and inventory paths.
+function normRegion(s){ return String(s||'').toLowerCase().replace(/\s+/g,''); }
+function normArmSku(s){ const t=String(s||'').trim(); return t ? t.replace(/\s+/g,'_') : null; }
+
+// Parse the VM inventory once, tolerating Resource Graph export quirks: a BOM,
+// quoted values, extra columns (id, resourceGroup, subscriptionId, tags…), and
+// alternative header spellings. Returns {data, c(olumns), fields} or null.
+async function getInventory(){
+  try{
+    const parsed = typeof S.invFile==='string'
+      ? Papa.parse(S.invFile,{header:true,skipEmptyLines:true})
+      : await parseFile(S.invFile);
+    const f = parsed.meta.fields||[];
+    const nf = f.map(x=>({raw:x,n:norm(x)}));
+    const pick=(...cands)=>{
+      for(const cd of cands){ const h=nf.find(x=>x.n===cd); if(h) return h.raw; }        // exact first
+      for(const cd of cands){ const h=nf.find(x=>x.n.endsWith(cd)); if(h) return h.raw; } // then suffix
+      return null;
+    };
+    const c={
+      name: pick('name','vmname','computername','machinename'),
+      size: pick('vmsize','size','hardwareprofilevmsize','vmsizename'),
+      os:   pick('ostype','os','osname','operatingsystem'),
+      loc:  pick('location','region','armregionname','resourcelocation')
+    };
+    if (!c.name || !c.size){
+      showWarn('VM inventory CSV needs at least "name" and "vmSize" columns. Columns found: '+(f.join(', ')||'(none)')+'. Re-run the Resource Graph query shown above and download the results as CSV.');
+      return null;
+    }
+    const data = parsed.data.filter(r=>r && (String(r[c.name]||'').trim() || String(r[c.size]||'').trim()));
+    return { data, c, fields:f };
+  }catch(e){ showWarn('Could not parse the VM inventory CSV: '+e.message); return null; }
+}
+
+// Reservation SKU groups built from the inventory: exact ARM SKU (vmSize) +
+// region, instance count = number of VMs, hours matched from the cost export by
+// VM name (falling back to a full month per unmatched VM). PAYG rate is picked
+// up from the cost export where the same SKU+region was billed.
+function inventoryReservationGroups(inv, hoursByVM, vmAgg){
+  const groups = new Map();
+  for (const row of inv.data){
+    const sku = normArmSku(row[inv.c.size]);
+    if (!sku) continue;
+    const region = inv.c.loc ? normRegion(row[inv.c.loc]) : '';
+    const name = String(row[inv.c.name]||'').trim().toLowerCase();
+    const k = sku+'|'+region;
+    if (!groups.has(k)) groups.set(k,{sku,region,hours:0,count:0,payg:null});
+    const g = groups.get(k);
+    g.count += 1;
+    const h = hoursByVM.get(name);
+    g.hours += (h && h>0) ? h : 730;
+    if (g.payg==null && vmAgg.has(k) && vmAgg.get(k).payg!=null) g.payg = vmAgg.get(k).payg;
+  }
+  return [...groups.values()];
+}
+
+// Fallback groups derived from cost-export meter names (no inventory).
+function vmAggToGroups(vmAgg){
+  return [...vmAgg.values()].filter(g=>g.hours>0)
+    .map(g=>({sku:g.sku, region:g.region, hours:g.hours, payg:g.payg, count:Math.max(1,Math.round(g.hours/730))}));
+}
+
+async function buildReservations(groups){
   S.reserv = [];
-  const groups = [...vmAgg.values()].filter(g=>g.hours>0).sort((a,b)=>b.hours-a.hours).slice(0,60);
+  const list = groups.filter(g=>g.hours>0).sort((a,b)=>b.hours-a.hours).slice(0,60);
   let done=0;
-  for (const g of groups){
-    setStatus(`Pricing reservations: ${++done}/${groups.length} SKUs…`);
+  for (const g of list){
+    setStatus(`Pricing reservations: ${++done}/${list.length} SKUs…`);
     // Once the API has failed once, stop hitting it — fall straight to the
     // offline estimate so a blocked network doesn't stall on every SKU.
     const rates = S.apiFailed ? null : await vmRates(g.sku,g.region);
-    const count = Math.max(1, Math.round(g.hours/730));
+    const count = g.count>0 ? g.count : Math.max(1, Math.round(g.hours/730));
     S.reserv.push({
       sku:g.sku, region:g.region, hours:Math.round(g.hours), count, qty:count,
       payg: (rates&&rates.payg!=null) ? rates.payg : (g.payg!=null?g.payg:null),
@@ -702,38 +785,18 @@ async function buildReservations(vmAgg){
   S.reserv.forEach(v=>{ v.term = bestTerm(v); }); // default to best-saving term to surface the incentive
 }
 
-async function buildUplift(costRows,M){
-  const parsed = typeof S.invFile==='string'
-    ? Papa.parse(S.invFile,{header:true,skipEmptyLines:true})
-    : await parseFile(S.invFile);
-  const f = parsed.meta.fields||[];
-  const c = {}, nf=f.map(x=>({raw:x,n:norm(x)}));
-  const pick=(...cands)=>{ for(const cd of cands){const h=nf.find(x=>x.n===cd||x.n.endsWith(cd)); if(h) return h.raw;} return null; };
-  c.name=pick('name','vmname'); c.size=pick('vmsize','size'); c.os=pick('ostype','os'); c.loc=pick('location','region');
-  if (!c.name||!c.os||!c.size){ showWarn('VM inventory CSV needs name, vmSize, osType and location columns — Windows uplift skipped.'); return; }
-
-  // consumed compute hours per VM name from cost rows
-  const hoursByVM = new Map();
-  if (M.resId && M.meterCat){
-    for (const r of costRows){
-      if (!/virtual machines/i.test(r[M.meterCat]||'')) continue;
-      const rid = String(r[M.resId]||'').toLowerCase();
-      const q = parseFloat(r[M.qty])||0;
-      const nmMatch = rid.split('/').pop();
-      if (nmMatch) hoursByVM.set(nmMatch,(hoursByVM.get(nmMatch)||0)+q);
-    }
-  }
-
-  for (const row of parsed.data){
+async function buildUplift(inv, hoursByVM){
+  const c = inv.c;
+  if (!c.os){ showWarn('VM inventory has no osType column, so the Windows licensing uplift can\'t be computed. Reservations still work; add an osType column (or a manual uplift override) to include Windows licensing.'); return; }
+  for (const row of inv.data){
     if (!/windows/i.test(String(row[c.os]||''))) continue;
     const name=String(row[c.name]||'').trim();
     const size=String(row[c.size]||'').trim();
-    const region=String(row[c.loc]||'').toLowerCase().replace(/\s+/g,'');
+    const region=c.loc?normRegion(row[c.loc]):'';
     const pair = await vmPricePair(size,region);
     const matched = hoursByVM.get(name.toLowerCase());
     const hours = matched && matched>0 ? Math.round(matched) : 730;
-    const delta = pair?pair.delta:null;
-    S.winVMs.push({name,size,region,hours,delta,est:!matched});
+    S.winVMs.push({name,size,region,hours,delta:pair?pair.delta:null,est:!matched});
   }
   recalcUplift();
 }
@@ -790,6 +853,18 @@ function render(){
       update();
     }));
   }
+  // VM inventory diagnostics — so it's visibly doing something when added
+  if ($('invDiag')){
+    if (S.invStats){
+      const s=S.invStats;
+      $('invDiag').textContent = `VM inventory: ${s.vms} VM(s) parsed, ${s.matched} matched to cost usage`
+        + (s.windows?`, ${s.windows} Windows`:'')
+        + `. Reservation SKUs ${s.fromInventory?'taken from the inventory (exact ARM SKUs).':'derived from cost meter names (no usable inventory SKUs).'}`;
+    } else {
+      $('invDiag').textContent='';
+    }
+  }
+
   renderReservations();
   update();
   renderServices();

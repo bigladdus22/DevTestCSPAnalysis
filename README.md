@@ -38,7 +38,8 @@ The `vmSize` column is also the **ARM SKU** used to price reservations (see belo
 
 Dev/Test subscriptions **cannot buy reserved instances** — Azure Plan can. That lever alone often tips a move, so the tool models it:
 
-- Virtual Machines usage in the cost export is grouped by **SKU + region**, and the steady-state instance count is estimated from the consumed hours (`hours ÷ 730`).
+- When a **VM inventory CSV is provided**, reservation SKUs come straight from its `vmSize` (the exact ARM SKU) and `location`, with the instance count taken from the number of VMs per SKU/region and hours matched from the cost export by VM name. This is more accurate than reconstructing SKUs from meter names (which mangles constrained-core and combined-meter SKUs like `D2/D2s v3`).
+- Without an inventory, Virtual Machines usage in the cost export is grouped by **SKU + region** (SKU reconstructed from the meter name), and the steady-state instance count is estimated from the consumed hours (`hours ÷ 730`).
 - **1-year and 3-year reserved-instance rates** are pulled from the Retail Prices API (`priceType eq 'Reservation'`); the term price is the whole-term total, so the monthly-equivalent is that total ÷ 12 or ÷ 36.
 - Each SKU gets a **term selector** (None / 1-year / 3-year) and an editable **reserved quantity**; a "Reserve all at" control sets every SKU at once. The best-saving term is pre-selected to surface the incentive.
 - Azure's billing model is honoured: a reservation covers `qty × 730` hours/month at the reserved rate, and any overage falls back to PAYG.
