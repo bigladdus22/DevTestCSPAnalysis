@@ -4,22 +4,47 @@ A single-page tool that reprices an Azure **Dev/Test subscription's** actual usa
 
 **Everything runs in your browser.** The CSV files you provide are parsed locally with JavaScript and are never uploaded anywhere. The only outbound calls are to the public, unauthenticated [Azure Retail Prices API](https://learn.microsoft.com/en-us/rest/api/cost-management/retail-prices/azure-retail-prices) — to look up retail rates where your export lacks a comparator column, and to price the Windows licensing uplift and reservation rates.
 
-## What you need to provide
+## Getting the data (three routes, all supported)
 
-### 1. Cost & usage export (required)
+The tool auto-detects which shape of export you gave it and adapts. Step **02 · What your export supports** in the UI then states, row by row, what your particular file can and can't answer and what to do about each gap — so a zero is never unexplained.
 
-One full calendar month, at **subscription scope**:
+### Route 1 — Cost analysis download (fastest, no setup)
 
-- **Azure portal** → Cost Management → **Cost analysis** → set the scope to the Dev/Test subscription → **Download** → CSV, or
-- A scheduled **"Cost and usage details (actual cost)"** export from Cost Management → Exports.
+Azure portal → **Cost Management** → **Cost analysis**, scoped to the Dev/Test subscription → switch the view to **Cost by resource** → set the range to one full calendar month → **Download → CSV**.
 
-The tool auto-detects both EA and MCA column naming (`CostInBillingCurrency`, `Quantity`, `MeterId`, `PayGPrice`, etc.). Where the export includes `PayGPrice`, that column is used as the retail comparator; otherwise retail rates are looked up per meter from the Retail Prices API.
+That file has `ResourceId`, `ServiceName`, `ServiceTier`, `Meter`, `ResourceLocation`, `Cost`, `Currency` — but **no `Quantity` and no unit prices**. The tool handles it by *deriving* quantities: each line's cost divided by that meter's retail unit rate (Azure Retail Prices API) is its quantity. That recovers VM hours, and with them the whole reservation model.
 
-### 2. VM inventory (optional but strongly recommended)
+What it can't do is detect a per-meter Dev/Test rate discount — with no unit price in the file, the Dev/Test rate is assumed to equal the PAYG rate. That's true for VMs (before Windows licensing) and for storage, but understates CSP cost where Dev/Test genuinely discounts a meter (App Service, Logic Apps, Cloud Services, HDInsight). **The break-even from this route is therefore a floor.** Needs outbound access to `prices.azure.com`.
 
-Dev/Test bills **Windows VMs at Linux rates with no Windows licence meter**, so the usage export alone cannot tell you which VMs are Windows — and repricing usage alone would understate the CSP cost. Provide a small inventory so the tool can add the licence delta back.
+### Route 2 — Cloud Shell (best data, one paste)
 
-Run this in **Azure Resource Graph Explorer** (portal → search "Resource Graph") and download the results as CSV:
+Open Cloud Shell (Bash) and paste the block shown in the app. It pages through the Consumption `usageDetails` API for the previous full calendar month and writes `devtest-usage.csv`, then pops a download:
+
+```bash
+sub=$(az account show --query id -o tsv)
+end=$(date -u +%Y-%m-01); start=$(date -u -d "$end -1 month" +%Y-%m-%d)
+url="https://management.azure.com/subscriptions/$sub/providers/Microsoft.Consumption/usageDetails?api-version=2021-10-01&metric=ActualCost&%24expand=meterDetails&%24top=1000&%24filter=properties%2FusageStart%20ge%20%27$start%27%20and%20properties%2FusageEnd%20lt%20%27$end%27"
+# ... pages on nextLink, emits CSV via jq, then: download devtest-usage.csv
+```
+
+This is the same data a scheduled export produces — `Quantity`, `MeterId` and **`PayGPrice`** per line — without waiting for an export to run. Every line is then priced **entirely offline**; the Retail Prices API is used only for reservation rates.
+
+### Route 3 — Cost Management export (best data, scheduled)
+
+Cost Management → **Exports** → **Create** → **"Cost and usage details (actual cost)"**, subscription scope, daily granularity, to a storage account. Richest file, fully offline. Use it if you want a recurring feed; Route 2 gets you the same columns in a minute.
+
+### VM inventory (optional but strongly recommended, any route)
+
+Dev/Test bills **Windows VMs at Linux rates with no Windows licence meter**, so the usage export alone cannot tell you which VMs are Windows — and repricing usage alone would understate the CSP cost. Without this file the Windows uplift is assumed to be zero.
+
+Cloud Shell, no extensions needed:
+
+```bash
+az vm list -o json | jq -r '(["name","vmSize","osType","location"]|@csv),(.[]|[.name,.hardwareProfile.vmSize,.storageProfile.osDisk.osType,.location]|@csv)' > vm-inventory.csv
+download vm-inventory.csv
+```
+
+Or Resource Graph Explorer (portal → search "Resource Graph") → run, then **Download as CSV**:
 
 ```kusto
 Resources
@@ -30,9 +55,26 @@ Resources
           location
 ```
 
-If you have **Azure Hybrid Benefit** rights (Windows Server licences with active Software Assurance), tick the AHB toggle in the tool — the uplift is then not payable and the comparison narrows considerably.
+If you have **Azure Hybrid Benefit** rights (Windows Server licences with active Software Assurance), tick the AHB toggle — the uplift is then not payable and the comparison narrows considerably.
 
-The `vmSize` column is also the **ARM SKU** used to price reservations (see below), and `location` the ARM region, so this same export sharpens the reservation modelling.
+`vmSize` is also the exact **ARM SKU** used to price reservations and `location` the ARM region, so the same file sharpens the reservation modelling.
+
+### Input handling
+
+- **Column names** are matched loosely (exact normalised match, then suffix), so EA, MCA and portal-download spellings all land — `CostInBillingCurrency`/`Cost`, `MeterCategory`/`ServiceName`, `MeterName`/`Meter`.
+- **Region display names are translated to ARM names** (`EU North` → `northeurope`, `US East 2` → `eastus2`). Without this every retail lookup for a portal CSV silently misses.
+- A **title/filter preamble** above the real header row is detected and skipped.
+- CSV can be **pasted as text** instead of uploaded, for machines where the download lands somewhere the file picker can't reach.
+- Marketplace and purchase charges are excluded from the repricing — they bill identically on either offer.
+
+### When `prices.azure.com` is blocked
+
+Some corporate networks block the Retail Prices API. Nothing errors out; the tool degrades and says so:
+
+- **Route 2 or 3 files** are unaffected for repricing — `PayGPrice` is in the file.
+- **Reservation rates** fall back to the assumed 1-yr/3-yr discounts you set in step 04, applied to the PAYG rate.
+- **The PAYG rate itself** falls back to an *implied* rate: that SKU's compute spend ÷ its hours. Dev/Test bills compute at the Linux PAYG rate, so cost ÷ hours is the PAYG rate to within rounding. With a VM inventory supplying instance counts, the reservation model therefore still works with **no outbound calls at all** (such rows are marked *implied*).
+- **Route 1 files** lose quantity derivation entirely in this case — supply the inventory, or use Route 2.
 
 ## Reservation savings (Azure Plan only)
 
@@ -70,13 +112,14 @@ A **Summary** capstone at the bottom of the results restates the whole picture �
 | Step | Calculation |
 |---|---|
 | Current spend | Sum of usage-charge lines (marketplace and purchase charges excluded — they bill identically on either offer) |
+| Quantity | The export's `Quantity` column, or — where the export has none — `cost ÷ meter's retail unit rate` |
 | Retail repricing | `Quantity × PayGPrice` per line, or Retail Prices API lookup by `MeterId` where PayGPrice is absent |
 | Windows uplift | Per Windows VM: (Windows rate − Linux rate) for its size/region × consumed compute hours (matched from the export where possible, editable per-VM) |
 | Reservation saving | Per reserved SKU: `PAYG-priced hours − (qty × 730 × reserved rate + overage × PAYG)` |
 | CSP cost at *d*% | `(retail + uplift − reservations) × (1 − d)` |
 | **Break-even** | `1 − current ÷ (retail + uplift − reservations)` — the discount above which Azure Plan beats Dev/Test |
 
-Lines with no retail comparator are conservatively treated as having **no Dev/Test discount** (retail = current), so the break-even shown is a floor, not an optimistic estimate.
+Lines with no retail comparator are conservatively treated as having **no Dev/Test discount** (retail = current), so the break-even shown is a floor, not an optimistic estimate. On Route 1 that applies to every line by construction — see the caveat there.
 
 ## What the numbers can't show
 
@@ -90,7 +133,7 @@ Lines with no retail comparator are conservatively treated as having **no Dev/Te
 
 This is a single static `index.html` — enable **GitHub Pages** on the repo (Settings → Pages → Deploy from branch → `main` / root) and share the URL. No build step, no backend.
 
-> **Note on the Retail Prices API:** it is called directly from the browser. If a customer's network blocks it, the tool degrades gracefully — a warning is shown, uncovered lines are treated conservatively, and a manual Windows-uplift override field is available.
+> **Note on the Retail Prices API:** it is called directly from the browser. If a customer's network blocks it the tool degrades gracefully rather than failing — see *When `prices.azure.com` is blocked* above.
 
 ## Disclaimer
 
