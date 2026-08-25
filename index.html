@@ -49,7 +49,9 @@ main{padding:28px 0 80px}
 .panel .sub{color:var(--ink-faint);font-size:13.5px;margin-bottom:14px}
 
 /* ---------- dropzones ---------- */
-.dz-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.dz-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:stretch}
+.dz-row>div{display:flex;flex-direction:column}
+.dz-row>div>.dropzone{flex:1;display:flex;flex-direction:column;justify-content:center}
 @media(max-width:760px){.dz-row{grid-template-columns:1fr}}
 .dropzone{border:1.5px dashed #B9C4D2;border-radius:var(--radius);padding:26px 18px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s;background:#FBFCFE}
 .dropzone:hover,.dropzone:focus-visible,.dropzone.drag{border-color:var(--azure);background:var(--azure-soft);outline:none}
@@ -69,6 +71,33 @@ button:focus-visible{outline:2px solid var(--azure);outline-offset:2px}
 .btn-ghost:hover{background:var(--azure-soft)}
 .hint{font-size:12.5px;color:var(--ink-faint)}
 .hint code{font-family:var(--mono);font-size:11.5px;background:var(--paper);border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+
+/* ---------- route tabs / code blocks ---------- */
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;border-bottom:1px solid var(--line);padding-bottom:12px}
+.tabs button{background:transparent;border:1px solid var(--line);color:var(--ink-soft);font-size:13px;font-weight:600;padding:7px 13px;border-radius:999px;text-align:left}
+.tabs button:hover{background:var(--azure-soft);border-color:#B9C4D2}
+.tabs button[aria-selected=true]{background:var(--azure);border-color:var(--azure);color:#fff}
+.tabs button .tag{display:block;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:600;opacity:.75;margin-bottom:1px}
+.route{font-size:13.5px;color:var(--ink-soft)}
+.route[hidden]{display:none}
+.route ol{margin:0 0 12px 18px}
+.route li{margin-bottom:5px}
+.route strong{color:var(--ink)}
+.codebox{position:relative;background:#0F1723;border-radius:8px;padding:14px 16px;margin:10px 0 12px;overflow-x:auto}
+.codebox pre{font-family:var(--mono);font-size:11.5px;line-height:1.7;color:#D6E2F0;white-space:pre}
+.codebox .copy{position:absolute;top:8px;right:8px;background:#25344A;color:#CFE0F2;border:1px solid #3A4C66;font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:6px}
+.codebox .copy:hover{background:#31435E}
+.paste-toggle{background:none;border:none;color:var(--azure);font-size:12.5px;font-weight:600;padding:4px 0;text-decoration:underline;cursor:pointer}
+textarea.paste{width:100%;min-height:110px;font-family:var(--mono);font-size:11.5px;border:1px solid var(--line);border-radius:8px;padding:10px;margin-top:8px;resize:vertical}
+textarea.paste[hidden]{display:none}
+
+/* ---------- data quality matrix ---------- */
+.pill-ok,.pill-part,.pill-no{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border-radius:999px;padding:2px 9px;white-space:nowrap}
+.pill-ok{background:var(--good-soft);color:var(--good)}
+.pill-part{background:var(--bad-soft);color:var(--bad)}
+.pill-no{background:#F0F2F5;color:var(--ink-faint)}
+#qualityTable td:first-child{font-weight:600;width:26%}
+#qualityTable td:nth-child(2){width:13%}
 
 /* ---------- verdict strip (signature) ---------- */
 #results{display:none}
@@ -184,30 +213,99 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 
 <main class="wrap">
 
-  <!-- STEP 1: inputs -->
+  <!-- STEP 1: get the data -->
   <section class="panel" id="inputPanel">
-    <h2><span class="step">01</span>Provide usage data</h2>
-    <p class="sub">Export one full month at subscription scope, daily granularity. Prefer a scheduled <strong>"Cost and usage details (actual cost)"</strong> export — it includes a <code>PayGPrice</code> column, so savings are computed entirely offline. A <strong>Cost analysis → Download (CSV)</strong> works too, but it lacks unit prices, so the tool must fetch retail rates from the Azure Retail Prices API (which some corporate networks block — in that case savings can't be shown).</p>
-    <div class="dz-row">
-      <div class="dropzone" id="dzCost" tabindex="0" role="button" aria-label="Upload cost and usage CSV">
-        <strong>Cost &amp; usage CSV</strong>
-        <span>Drag &amp; drop or click to browse · required</span>
-        <span class="file-tag" id="tagCost"></span>
-        <input type="file" id="fileCost" accept=".csv" hidden>
+    <h2><span class="step">01</span>Get the usage data</h2>
+    <p class="sub">One full calendar month at <strong>subscription scope</strong>. Three ways to get it — the first is the 30-second one and is what most people already have. All of them now work; the panel below tells you exactly what each one buys you.</p>
+
+    <div class="tabs" id="routeTabs" role="tablist">
+      <button type="button" role="tab" data-route="portal" aria-selected="true"><span class="tag">Fastest · no setup</span>Cost analysis download</button>
+      <button type="button" role="tab" data-route="shell" aria-selected="false"><span class="tag">Best data · one paste</span>Cloud Shell export</button>
+      <button type="button" role="tab" data-route="export" aria-selected="false"><span class="tag">Best data · scheduled</span>Cost Management export</button>
+    </div>
+
+    <div class="route" id="routePortal">
+      <ol>
+        <li>Azure portal → <strong>Cost Management</strong> → <strong>Cost analysis</strong>, scoped to the Dev/Test subscription.</li>
+        <li>Switch the view to <strong>Cost by resource</strong> (the built-in <code>CostByResource</code> view). It carries <code>ServiceName</code>, <code>Meter</code>, <code>ResourceLocation</code> and <code>ResourceId</code> — everything the analysis needs.</li>
+        <li>Set the date range to <strong>one full calendar month</strong>, then <strong>Download → CSV</strong>.</li>
+      </ol>
+      <p class="hint">This file has no <code>Quantity</code> and no unit prices, so the tool <strong>derives quantities</strong> by dividing each line's cost by that meter's retail unit rate from the Azure Retail Prices API. That recovers VM hours and the reservation model. It can't detect a per-meter Dev/Test rate discount, so the break-even it reports is a floor — if the estate is mostly VMs and storage (where Dev/Test and PAYG rates match) that floor is the real answer. Needs outbound access to <code>prices.azure.com</code>.</p>
+    </div>
+
+    <div class="route" id="routeShell" hidden>
+      <ol>
+        <li>Open <strong>Azure Cloud Shell</strong> (the <code>&gt;_</code> icon in the portal top bar), <strong>Bash</strong>.</li>
+        <li>Paste the block below. It writes <code>devtest-usage.csv</code> and pops a download.</li>
+      </ol>
+      <div class="codebox"><button type="button" class="copy" data-copy="codeShell">Copy</button><pre id="codeShell"># az account set --subscription "Visual Studio Professional Subscription"   # if it isn't the current one
+sub=$(az account show --query id -o tsv)
+end=$(date -u +%Y-%m-01); start=$(date -u -d "$end -1 month" +%Y-%m-%d)
+url="https://management.azure.com/subscriptions/$sub/providers/Microsoft.Consumption/usageDetails?api-version=2021-10-01&amp;metric=ActualCost&amp;%24expand=meterDetails&amp;%24top=1000&amp;%24filter=properties%2FusageStart%20ge%20%27$start%27%20and%20properties%2FusageEnd%20lt%20%27$end%27"
+echo 'MeterId,MeterCategory,MeterSubCategory,MeterName,UnitOfMeasure,Quantity,EffectivePrice,UnitPrice,PayGPrice,CostInBillingCurrency,BillingCurrency,ResourceLocation,ChargeType,PublisherType,ResourceId,Date' &gt; devtest-usage.csv
+while [ -n "$url" ]; do
+  r=$(az rest --method get --url "$url" --only-show-errors -o json)
+  echo "$r" | jq -r '.value[]|.properties|[.meterId,(.meterDetails.meterCategory//.meterCategory//""),(.meterDetails.meterSubCategory//.meterSubCategory//""),(.meterDetails.meterName//.meterName//""),(.meterDetails.unitOfMeasure//.unitOfMeasure//""),.quantity,.effectivePrice,.unitPrice,(.payGPrice//""),(.cost//.costInBillingCurrency),(.billingCurrency//.billingCurrencyCode),.resourceLocation,.chargeType,(.publisherType//"Azure"),.resourceId,.date]|@csv' &gt;&gt; devtest-usage.csv
+  url=$(echo "$r" | jq -r '.nextLink // empty')
+done
+echo "rows: $(( $(wc -l &lt; devtest-usage.csv) - 1 ))"; download devtest-usage.csv</pre></div>
+      <p class="hint">This is the same data a scheduled export produces — including <code>PayGPrice</code> — without waiting for an export to run. Every line is then priced <strong>entirely offline</strong>; the Retail Prices API is only used for reservation rates.</p>
+    </div>
+
+    <div class="route" id="routeExport" hidden>
+      <ol>
+        <li>Cost Management → <strong>Exports</strong> → <strong>Create</strong> → <strong>Cost and usage details (actual cost)</strong>.</li>
+        <li>Scope: the Dev/Test subscription. Granularity: <strong>daily</strong>. Period: <strong>month-to-date</strong> or a chosen month, to a storage account.</li>
+        <li>Run it once, then download the CSV from the container and drop it below.</li>
+      </ol>
+      <p class="hint">Richest file and fully offline — it carries <code>Quantity</code>, <code>MeterId</code> and <code>PayGPrice</code> per line, so the tool sees exactly where Dev/Test rates undercut PAYG rather than assuming they match. Worth it if you're building a real proposal; the Cloud Shell route gets you the same columns in a minute.</p>
+    </div>
+
+    <div class="dz-row" style="margin-top:16px">
+      <div>
+        <div class="dropzone" id="dzCost" tabindex="0" role="button" aria-label="Upload cost and usage CSV">
+          <strong>Cost &amp; usage CSV</strong>
+          <span>Drag &amp; drop or click to browse · required</span>
+          <span class="file-tag" id="tagCost"></span>
+          <input type="file" id="fileCost" accept=".csv,.txt" hidden>
+        </div>
+        <button type="button" class="paste-toggle" data-paste="pasteCost">or paste CSV text</button>
+        <textarea class="paste" id="pasteCost" hidden placeholder="Paste the CSV contents here, header row included"></textarea>
       </div>
-      <div class="dropzone" id="dzInv" tabindex="0" role="button" aria-label="Upload VM inventory CSV">
-        <span class="dz-optional">Optional</span>
-        <strong>VM inventory CSV</strong>
-        <span>Resource Graph export with name, vmSize, osType, location — enables the Windows licensing uplift and sharpens reservation SKU matching</span>
-        <span class="file-tag" id="tagInv"></span>
-        <input type="file" id="fileInv" accept=".csv" hidden>
+      <div>
+        <div class="dropzone" id="dzInv" tabindex="0" role="button" aria-label="Upload VM inventory CSV">
+          <span class="dz-optional">Optional</span>
+          <strong>VM inventory CSV</strong>
+          <span>name, vmSize, osType, location — enables the Windows licensing uplift and exact reservation SKUs</span>
+          <span class="file-tag" id="tagInv"></span>
+          <input type="file" id="fileInv" accept=".csv,.txt" hidden>
+        </div>
+        <button type="button" class="paste-toggle" data-paste="pasteInv">or paste CSV text</button>
+        <textarea class="paste" id="pasteInv" hidden placeholder="name,vmSize,osType,location&#10;vm-01,Standard_D4s_v5,Windows,northeurope"></textarea>
       </div>
     </div>
+
     <div class="actions">
       <button class="btn-primary" id="btnAnalyse" disabled>Analyse subscription</button>
-      <button class="btn-ghost" id="btnDemo">Load demo data</button>
-      <span class="hint">Inventory query (Resource Graph — <code>vmSize</code> is the ARM SKU used for reservation pricing, <code>location</code> the ARM region): <code>Resources | where type =~ 'microsoft.compute/virtualmachines' | project name, vmSize=tostring(properties.hardwareProfile.vmSize), osType=tostring(properties.storageProfile.osDisk.osType), location=location</code></span>
+      <button class="btn-ghost" id="btnDemo">Demo: full usage export</button>
+      <button class="btn-ghost" id="btnDemo2">Demo: cost analysis CSV</button>
     </div>
+
+    <details style="margin-top:14px">
+      <summary class="hint" style="cursor:pointer;font-weight:600">How to get the VM inventory (two options)</summary>
+      <p class="hint" style="margin-top:8px">Cloud Shell — no extensions needed:</p>
+      <div class="codebox"><button type="button" class="copy" data-copy="codeInv">Copy</button><pre id="codeInv">az vm list -o json | jq -r '(["name","vmSize","osType","location"]|@csv),(.[]|[.name,.hardwareProfile.vmSize,.storageProfile.osDisk.osType,.location]|@csv)' &gt; vm-inventory.csv
+download vm-inventory.csv</pre></div>
+      <p class="hint">Or Resource Graph Explorer (portal → search "Resource Graph") → run, then <strong>Download as CSV</strong>:</p>
+      <div class="codebox"><button type="button" class="copy" data-copy="codeKql">Copy</button><pre id="codeKql">Resources
+| where type =~ 'microsoft.compute/virtualmachines'
+| project name,
+          vmSize = tostring(properties.hardwareProfile.vmSize),
+          osType = tostring(properties.storageProfile.osDisk.osType),
+          location</pre></div>
+      <p class="hint">Dev/Test bills Windows VMs at <strong>Linux</strong> rates with no licence meter, so the usage export alone can't tell you which VMs are Windows. Without this file the Windows uplift is assumed to be zero and the CSP cost is understated. <code>vmSize</code> is also the exact ARM SKU used to price reservations.</p>
+    </details>
+
     <div class="status" id="status"></div>
     <div class="warn-box" id="warnBox"></div>
   </section>
@@ -250,9 +348,19 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
       <div class="kpi"><div class="lbl">CSP cost at selected discount</div><div class="val num" id="kpiCsp">—</div><div class="note">retail + uplift − reservations − discount</div></div>
     </div>
 
+    <!-- data quality -->
+    <section class="panel" id="qualityPanel">
+      <h2><span class="step">02</span>What your export supports</h2>
+      <p class="sub" id="qualitySub">—</p>
+      <div style="overflow-x:auto"><table id="qualityTable">
+        <thead><tr><th>Capability</th><th>Status</th><th>What it means for this analysis</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </section>
+
     <!-- windows uplift -->
     <section class="panel" id="upliftPanel">
-      <h2><span class="step">02</span>Windows Server licensing uplift</h2>
+      <h2><span class="step">03</span>Windows Server licensing uplift</h2>
       <p class="sub">Dev/Test bills Windows VMs at Linux rates with no licence meter, so repricing usage alone understates the CSP cost. This section adds the licence delta back for Windows VMs.</p>
       <div class="toggle-row">
         <label class="toggle"><input type="checkbox" id="ahbToggle"> Azure Hybrid Benefit available (existing Windows Server licences with SA) — uplift not payable</label>
@@ -263,7 +371,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 
     <!-- reservations -->
     <section class="panel" id="reservPanel">
-      <h2><span class="step">03</span>Reservation savings on Azure Plan</h2>
+      <h2><span class="step">04</span>Reservation savings on Azure Plan</h2>
       <p class="sub">Dev/Test can't use reserved instances — Azure Plan (CSP) can. Committing steady-state compute to a 1- or 3-year reservation cuts the CSP rate well below PAYG, which is often what tips the move. Live rates come from the Azure Retail Prices API where reachable; otherwise they're <strong>estimated from the export's PAYG rate and the assumed discounts below</strong> (marked <em>est.</em>). Pick a term per SKU and the saving folds into the verdict.</p>
       <div class="toggle-row">
         <span class="hint">Reserve all at:</span>
@@ -282,7 +390,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 
     <!-- all-up business case -->
     <section class="panel" id="allupPanel">
-      <h2><span class="step">04</span>All-up business case</h2>
+      <h2><span class="step">05</span>All-up business case</h2>
       <p class="sub">Everything rolled together at the selected discount and reservation choices — per month and annualised. <strong>Reservations show as a saving because Dev/Test can't use them</strong> — they're a lever you only unlock by moving to Azure Plan. The support value is your estimate of the risk currently carried by running these workloads with <strong>no SLA and no support</strong> on Dev/Test; Azure Plan restores both.</p>
       <div class="toggle-row">
         <span class="inline-input">Support / SLA opportunity value <input type="number" id="supportPct" min="0" max="100" step="1" value="10">% of current spend</span>
@@ -297,7 +405,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 
     <!-- service breakdown -->
     <section class="panel">
-      <h2><span class="step">05</span>Where the Dev/Test discount is earning its keep</h2>
+      <h2><span class="step">06</span>Where the Dev/Test discount is earning its keep</h2>
       <p class="sub">Current cost vs retail repricing by service. Large deltas are the services whose Dev/Test rates the CSP discount has to beat.</p>
       <div style="overflow-x:auto"><table id="svcTable">
         <thead><tr><th>Service</th><th class="r">Current (Dev/Test)</th><th class="r">Retail (PAYG)</th><th class="r">Dev/Test saving</th><th style="width:22%">Share of retail spend</th></tr></thead>
@@ -308,7 +416,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 
     <!-- caveats -->
     <section class="panel">
-      <h2><span class="step">06</span>What the numbers can't show</h2>
+      <h2><span class="step">07</span>What the numbers can't show</h2>
       <ul class="note-list">
         <li><strong>No SLA on Dev/Test.</strong> Dev/Test offers carry no financially-backed SLA. Azure Plan (CSP) restores standard SLAs — worth real money if these workloads matter.</li>
         <li><strong>Production is prohibited on Dev/Test.</strong> If any of this estate is quietly running production, moving to CSP is a compliance fix, not just a commercial choice.</li>
@@ -321,7 +429,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 
     <!-- live summary capstone -->
     <section class="panel summary" id="summaryPanel">
-      <h2><span class="step">07</span>Summary</h2>
+      <h2><span class="step">08</span>Summary</h2>
       <p class="sub">Live snapshot at the current discount, reservation, uplift and support selections — this table updates as you change anything above.</p>
       <div style="overflow-x:auto"><table id="summaryTable">
         <thead><tr><th>Item</th><th class="r">Per month</th><th class="r">Per year</th></tr></thead>
@@ -360,30 +468,49 @@ const S = {
   reserv:[],            // {sku,region,hours,count,payg,r1,r3,term,qty}
   apiFailed:false,
   cappedMeters:0,
-  invStats:null       // {vms, matched, windows, fromInventory}
+  invStats:null,        // {vms, matched, windows, fromInventory}
+  schema:null           // {kind, label, cols, hasQty, hasPayg, hasMeterId, derived, unresolved, rows, days}
 };
 const $ = id => document.getElementById(id);
 const fmt = v => new Intl.NumberFormat(undefined,{style:'currency',currency:S.currency,maximumFractionDigits:0}).format(v);
 const fmt2 = v => new Intl.NumberFormat(undefined,{style:'currency',currency:S.currency,maximumFractionDigits:2}).format(v);
 
-/* ================= column mapping ================= */
+/* ================= column mapping =================
+   Three shapes of file reach this tool and all three are now accepted:
+
+   A. "Cost and usage details" export  — Quantity + PayGPrice + MeterId. Fully
+      priced offline; nothing is guessed.
+   B. Cost analysis → Download (CSV)   — Cost + Meter + ServiceName only. No
+      quantity and no unit price, so quantities are DERIVED by dividing each
+      line's cost by that meter's retail unit rate (Retail Prices API). That
+      unlocks VM hours, and with them the reservation model.
+   C. Cost analysis grouped by resource — as B, plus ResourceId, which lets VM
+      names be matched to the inventory.
+
+   Header matching is deliberately loose: exact normalised match first, then a
+   suffix match, so "properties/quantity", "Cost (GBP)" and "MeterName" all land. */
 const norm = s => String(s||'').toLowerCase().replace(/[^a-z0-9]/g,'');
 const COLS = {
-  cost:['costinbillingcurrency','cost','pretaxcost','costinusd'],
-  qty:['quantity','usagequantity','consumedquantity'],
+  // billing-currency cost first; USD only as a last resort
+  cost:['costinbillingcurrency','pretaxcost','cost','costusd','costinusd'],
+  qty:['quantity','usagequantity','consumedquantity','billingquantity'],
   eff:['effectiveprice'],
   payg:['paygprice','paygoprice','payasyougoprice','marketprice'],
   unit:['unitprice'],
   meterId:['meterid'],
-  meterCat:['metercategory'],
-  meterSub:['metersubcategory'],
-  meterName:['metername'],
-  region:['resourcelocation','location'],
+  // "MeterCategory" (usage details) and "ServiceName" (cost analysis) are the
+  // same axis — both give "Virtual Machines" / "Storage" — so they share a slot.
+  service:['metercategory','servicename','consumedservice','servicefamily'],
+  tier:['metersubcategory','servicetier'],
+  meterName:['metername','meter'],
+  region:['resourcelocation','armregionname','location','region'],
   ccy:['billingcurrency','billingcurrencycode','currencycode','currency'],
   chargeType:['chargetype'],
   pubType:['publishertype'],
   resId:['resourceid','instanceid','instancename'],
-  uom:['unitofmeasure']
+  resName:['resourcename'],
+  uom:['unitofmeasure'],
+  date:['date','usagedate','usagedatetime','usagestart']
 };
 function mapHeaders(fields){
   const m = {}, nf = fields.map(f=>({raw:f,n:norm(f)}));
@@ -392,91 +519,293 @@ function mapHeaders(fields){
       const hit = nf.find(f=>f.n===cand);
       if (hit){ m[key]=hit.raw; break; }
     }
+    if (m[key]) continue;
+    for (const cand of COLS[key]){                       // then a suffix match
+      const hit = nf.find(f=>f.n.endsWith(cand));
+      if (hit){ m[key]=hit.raw; break; }
+    }
   }
   return m;
 }
 
-/* ================= parse + analyse ================= */
-function parseFile(file){
-  return new Promise((res,rej)=>{
-    Papa.parse(file,{header:true,skipEmptyLines:true,dynamicTyping:false,
-      complete:r=>res(r), error:e=>rej(e)});
-  });
+/* ================= regions =================
+   Cost Management writes region DISPLAY names ("EU North", "US East 2"); the
+   Retail Prices API only knows ARM names ("northeurope", "eastus2"). Without
+   this translation every retail lookup for a portal CSV silently misses. */
+const REGION_MAP = (()=>{
+  const t = {
+    eastus:'US East|East US', eastus2:'US East 2|East US 2', westus:'US West|West US',
+    westus2:'US West 2|West US 2', westus3:'US West 3|West US 3',
+    centralus:'US Central|Central US', northcentralus:'US North Central|North Central US',
+    southcentralus:'US South Central|South Central US', westcentralus:'US West Central|West Central US',
+    northeurope:'EU North|North Europe', westeurope:'EU West|West Europe',
+    uksouth:'UK South', ukwest:'UK West',
+    francecentral:'FR Central|France Central', francesouth:'FR South|France South',
+    germanywestcentral:'DE West Central|Germany West Central', germanynorth:'DE North|Germany North',
+    switzerlandnorth:'CH North|Switzerland North', switzerlandwest:'CH West|Switzerland West',
+    norwayeast:'NO East|Norway East', norwaywest:'NO West|Norway West',
+    swedencentral:'SE Central|Sweden Central', swedensouth:'SE South|Sweden South',
+    polandcentral:'PL Central|Poland Central', italynorth:'IT North|Italy North',
+    spaincentral:'ES Central|Spain Central', austriaeast:'AT East|Austria East',
+    eastasia:'AP East|East Asia', southeastasia:'AP Southeast|Southeast Asia',
+    japaneast:'JA East|Japan East', japanwest:'JA West|Japan West',
+    koreacentral:'KR Central|Korea Central', koreasouth:'KR South|Korea South',
+    centralindia:'IN Central|Central India', southindia:'IN South|South India', westindia:'IN West|West India',
+    australiaeast:'AU East|Australia East', australiasoutheast:'AU Southeast|Australia Southeast',
+    australiacentral:'AU Central|Australia Central', australiacentral2:'AU Central 2|Australia Central 2',
+    canadacentral:'CA Central|Canada Central', canadaeast:'CA East|Canada East',
+    brazilsouth:'BR South|Brazil South', brazilsoutheast:'BR Southeast|Brazil Southeast',
+    southafricanorth:'ZA North|South Africa North', southafricawest:'ZA West|South Africa West',
+    uaenorth:'AE North|UAE North', uaecentral:'AE Central|UAE Central',
+    qatarcentral:'QA Central|Qatar Central', israelcentral:'IL Central|Israel Central',
+    mexicocentral:'MX Central|Mexico Central', newzealandnorth:'NZ North|New Zealand North',
+    indonesiacentral:'ID Central|Indonesia Central', malaysiawest:'MY West|Malaysia West',
+    chilecentral:'CL Central|Chile Central'
+  };
+  const m = {};
+  for (const arm in t){ m[arm]=arm; t[arm].split('|').forEach(a=>{ m[norm(a)]=arm; }); }
+  return m;
+})();
+// -> ARM region name, or '' when the line is global/unassigned/unknown.
+function armRegion(s){
+  const n = norm(s);
+  if (!n || n==='global' || n==='unassigned' || n==='allregions' || n==='intercontinental') return '';
+  return REGION_MAP[n] || n;
 }
 
+/* ================= parse ================= */
+function parseCsv(src){
+  return new Promise((res,rej)=>{
+    const opts = {header:true, skipEmptyLines:'greedy', dynamicTyping:false,
+      transformHeader:h=>String(h||'').replace(/^﻿/,'').trim(),
+      complete:r=>res(r), error:e=>rej(e)};
+    if (typeof src === 'string') { try{ res(Papa.parse(src,opts)); }catch(e){ rej(e); } }
+    else Papa.parse(src,opts);
+  });
+}
+// Portal downloads sometimes carry a title/filter preamble above the real header
+// row. Papa treats the first line as the header, so detect that and re-parse
+// from the line that actually looks like a header.
+async function parseUsageCsv(src){
+  let parsed = await parseCsv(src);
+  const looksMapped = f => { const m = mapHeaders(f||[]); return !!(m.cost && (m.meterName || m.service || m.resId)); };
+  if (looksMapped(parsed.meta.fields)) return parsed;
+  const text = typeof src === 'string' ? src : await src.text();
+  const lines = text.split(/\r?\n/);
+  for (let i=1; i<Math.min(lines.length,15); i++){
+    const head = Papa.parse(lines[i],{skipEmptyLines:true}).data[0] || [];
+    if (head.length>2 && looksMapped(head.map(h=>String(h||'').trim()))){
+      return await parseCsv(lines.slice(i).join('\n'));
+    }
+  }
+  return parsed;
+}
+
+/* ================= normalise =================
+   Everything downstream reads this shape, never the raw CSV, so adding another
+   export format only means teaching mapHeaders about its column names. */
+function normaliseRows(raw, M){
+  const out = [];
+  for (const r of raw){
+    const costRaw = M.cost ? r[M.cost] : null;
+    const cost = parseFloat(String(costRaw==null?'':costRaw).replace(/[^0-9.eE+-]/g,''));
+    if (!isFinite(cost)) continue;
+    const qRaw = M.qty ? parseFloat(r[M.qty]) : NaN;
+    const pRaw = M.payg ? parseFloat(r[M.payg]) : NaN;
+    const resId = M.resId ? String(r[M.resId]||'') : '';
+    const resName = M.resName ? String(r[M.resName]||'') : (resId ? resId.split('/').pop() : '');
+    out.push({
+      cost,
+      qty: isFinite(qRaw) && qRaw>0 ? qRaw : null,
+      qtyDerived: false,
+      payg: isFinite(pRaw) && pRaw>0 ? pRaw : null,
+      meterId: M.meterId ? String(r[M.meterId]||'') : '',
+      meter: String((M.meterName ? r[M.meterName] : '')||'').trim(),
+      service: String((M.service ? r[M.service] : '')||'').trim() || 'Other',
+      tier: String((M.tier ? r[M.tier] : '')||'').trim(),
+      region: armRegion(M.region ? r[M.region] : ''),
+      uom: String((M.uom ? r[M.uom] : '')||'').trim(),
+      chargeType: String((M.chargeType ? r[M.chargeType] : '')||'').trim() || 'Usage',
+      pubType: String((M.pubType ? r[M.pubType] : '')||'').trim() || 'Azure',
+      resId, resName: resName.trim().toLowerCase(),
+      date: String((M.date ? r[M.date] : '')||'').trim()
+    });
+  }
+  return out;
+}
+
+/* Classify the file so the UI can say plainly what it does and doesn't support. */
+function classify(M, rows){
+  const withQty  = rows.filter(r=>r.qty!=null).length;
+  const withPayg = rows.filter(r=>r.payg!=null).length;
+  const days = new Set(rows.map(r=>r.date.slice(0,10)).filter(Boolean)).size;
+  const hasQty = withQty > rows.length*0.5;
+  const hasPayg = withPayg > rows.length*0.5;
+  let kind, label;
+  if (hasQty && hasPayg){ kind='full'; label='Cost & usage details export — quantities and PayG unit prices present'; }
+  else if (hasQty){ kind='qty'; label='Usage export with quantities but no PayGPrice column'; }
+  else { kind='costOnly'; label='Cost analysis download — cost per line, no quantities'; }
+  return {kind, label, hasQty, hasPayg, hasMeterId:!!M.meterId, hasResId:!!M.resId,
+          rows:rows.length, days, derived:0, unresolved:0, cols:M};
+}
+
+/* ================= derive quantities =================
+   A cost-analysis CSV has no Quantity column, which is why this tool used to
+   reject it outright. But a line's cost divided by its meter's retail unit rate
+   IS the quantity, to the precision that matters here — and that single step
+   turns the easy export into one that can drive VM hours and the reservation
+   model. Lines whose meter can't be priced simply keep qty=null and are treated
+   as having no Dev/Test delta, exactly as before. */
+async function deriveQuantities(rows){
+  const groups = new Map();                 // region|service|meter -> {rows, meter, service, region}
+  for (const r of rows){
+    if (r.qty!=null || !r.meter || r.cost<=0) continue;
+    const k = r.region+'|'+r.service+'|'+r.meter;
+    if (!groups.has(k)) groups.set(k,{meter:r.meter, service:r.service, region:r.region, rows:[]});
+    groups.get(k).rows.push(r);
+  }
+  if (!groups.size) return {derived:0, unresolved:0};
+  const prices = await meterUnitPrices([...groups.values()]);
+  let derived=0, unresolved=0;
+  for (const [k,g] of groups){
+    const p = prices.get(k);
+    if (p!=null && p>0){
+      g.rows.forEach(r=>{ r.qty = r.cost/p; r.qtyDerived = true; r.unitPrice = p; });
+      derived += g.rows.length;
+    } else {
+      unresolved += g.rows.length;
+    }
+  }
+  return {derived, unresolved};
+}
+
+// Retail unit price per (meter, region). Batched by region with an OData `or`
+// list so a few hundred meters cost a handful of requests, not a few hundred.
+async function meterUnitPrices(groups){
+  const out = new Map();
+  const byRegion = new Map();
+  for (const g of groups){
+    const key = g.region || '_';
+    if (!byRegion.has(key)) byRegion.set(key,[]);
+    byRegion.get(key).push(g);
+  }
+  let done=0, total=groups.length;
+  for (const [region,list] of byRegion){
+    const CHUNK = 12;
+    for (let i=0;i<list.length;i+=CHUNK){
+      const chunk = list.slice(i,i+CHUNK);
+      const names = [...new Set(chunk.map(g=>g.meter))];
+      let filter = "priceType eq 'Consumption' and ("
+        + names.map(n=>`meterName eq '${odata(n)}'`).join(' or ') + ")";
+      if (region !== '_') filter += ` and armRegionName eq '${odata(region)}'`;
+      try{
+        const items = await retailAll(filter);
+        for (const g of chunk){
+          const cands = items.filter(it=>
+            String(it.meterName||'').toLowerCase()===g.meter.toLowerCase() &&
+            !/spot|low priority/i.test((it.skuName||'')+(it.meterName||'')));
+          // prefer the row whose serviceName matches the export's ServiceName
+          const svc = cands.filter(it=>norm(it.serviceName)===norm(g.service));
+          const pick = (svc.length?svc:cands).map(it=>it.retailPrice).filter(v=>v>0);
+          if (pick.length) out.set(g.region+'|'+g.service+'|'+g.meter, Math.min(...pick));
+        }
+      }catch(e){ S.apiFailed = true; }
+      done += chunk.length;
+      setStatus(`Deriving quantities from retail unit rates: ${Math.min(done,total)}/${total} meters…`);
+    }
+  }
+  return out;
+}
+
+/* ================= analyse ================= */
 async function analyse(){
   $('btnAnalyse').disabled = true;
   setStatus('Parsing cost export…');
   hideWarn();
   S.apiFailed = false; S.cappedMeters = 0;
   try{
-    const parsed = typeof S.costFile==='string'
-      ? Papa.parse(S.costFile,{header:true,skipEmptyLines:true})
-      : await parseFile(S.costFile);
+    const parsed = await parseUsageCsv(S.costFile);
     const M = mapHeaders(parsed.meta.fields||[]);
-    if (!M.cost || !M.qty){
-      showWarn('Could not find cost/quantity columns. Expected a Cost Management usage export (columns like CostInBillingCurrency, Quantity, MeterId…). Check the file and try again.');
-      setStatus(''); $('btnAnalyse').disabled=false; return;
+    if (!M.cost){
+      showWarn('No cost column found in this CSV. Columns present: '
+        + ((parsed.meta.fields||[]).join(', ') || '(none)')
+        + '.\n\nThe tool accepts any of: a Cost analysis download (Cost / Meter / ServiceName), a Cost & usage details export (CostInBillingCurrency / Quantity / PayGPrice), or the Cloud Shell export shown above. If this file came from Cost analysis, make sure you used Download → CSV on the table view rather than a chart image.');
+      reject(); return;
     }
-    const rows = parsed.data;
-    // currency
-    const ccyRow = rows.find(r=>r[M.ccy]);
-    S.currency = M.ccy && ccyRow ? String(ccyRow[M.ccy]).trim().toUpperCase() : 'GBP';
+
+    // currency: from the file where present, else from the cost column's name
+    const ccyRow = M.ccy ? parsed.data.find(r=>r[M.ccy]) : null;
+    S.currency = ccyRow ? String(ccyRow[M.ccy]).trim().toUpperCase()
+               : (/usd/i.test(M.cost||'') ? 'USD' : 'GBP');
     try{ fmt(1); }catch(e){ S.currency='GBP'; }
 
-    // classify + aggregate
-    let current=0, excluded=0;
-    const byService = new Map();       // cat -> {current,retail,covered}
-    const needLookup = new Map();      // meterId -> {qty,cost,cat,region,name}
-    const vmAgg = new Map();           // sku|region -> {sku,region,hours} (reservable compute)
-    let coveredRetail=0, coveredCurrent=0, retail=0;
+    const rows = normaliseRows(parsed.data, M);
+    if (!rows.length){
+      showWarn('The file parsed, but no rows had a usable cost value. Check that the download is the CSV of the cost table (not a chart export) and that it covers a period with spend.');
+      reject(); return;
+    }
+    S.schema = classify(M, rows);
 
-    for (const r of rows){
-      const cost = parseFloat(r[M.cost])||0;
-      const qty  = parseFloat(r[M.qty])||0;
-      const charge = M.chargeType ? String(r[M.chargeType]||'Usage') : 'Usage';
-      const pub = M.pubType ? String(r[M.pubType]||'Azure') : 'Azure';
-      const isMkt = /marketplace/i.test(pub);
-      const isUsage = /usage/i.test(charge) || charge==='';
-      if (!isUsage || isMkt){ excluded += cost; continue; }
-      current += cost;
-      const cat = (M.meterCat && r[M.meterCat]) ? r[M.meterCat] : 'Other';
-      if (!byService.has(cat)) byService.set(cat,{name:cat,current:0,retail:0,covered:0});
-      const svc = byService.get(cat);
-      svc.current += cost;
+    // usage lines only — marketplace and purchases bill identically either way
+    const usage = rows.filter(r=>{
+      const isMkt = /marketplace/i.test(r.pubType);
+      const isUsage = /usage/i.test(r.chargeType) || r.chargeType==='';
+      return isUsage && !isMkt;
+    });
+    S.excluded = rows.reduce((t,r)=>t+r.cost,0) - usage.reduce((t,r)=>t+r.cost,0);
 
-      // collect VM compute hours + PAYG rate by SKU+region for reservation modelling
-      if (/virtual machines/i.test(cat) && qty>0 && (!M.uom || /hour/i.test(String(r[M.uom]||'')))){
-        const sku = skuFromMeter(M.meterName ? r[M.meterName] : '');
-        const region = String((M.region ? r[M.region] : '')||'').toLowerCase().replace(/\s+/g,'');
-        if (sku && region){
-          const k = sku+'|'+region;
-          if (!vmAgg.has(k)) vmAgg.set(k,{sku,region,hours:0,payg:null});
-          const g = vmAgg.get(k); g.hours += qty;
-          // PAYG hourly straight from the export, so reservations can be priced
-          // even when the Retail Prices API is blocked on the customer's network
-          const pv = M.payg ? parseFloat(r[M.payg]) : NaN;
-          if (isFinite(pv) && pv>0 && g.payg==null) g.payg = pv;
+    // Derive quantities when the export has none (cost-analysis download).
+    if (!S.schema.hasQty){
+      setStatus('This export has no Quantity column — deriving quantities from retail unit rates…');
+      const d = await deriveQuantities(usage);
+      S.schema.derived = d.derived; S.schema.unresolved = d.unresolved;
+    }
+
+    // ---- reprice at PAYG retail ----
+    let current=0, retail=0, coveredRetail=0, coveredCurrent=0;
+    const byService = new Map();
+    const needLookup = new Map();            // meterId -> {qty,cost,svc}
+    const vmAgg = new Map();                 // sku|region -> {sku,region,hours,payg}
+    const hoursByVM = new Map();
+
+    for (const r of usage){
+      current += r.cost;
+      if (!byService.has(r.service)) byService.set(r.service,{name:r.service,current:0,retail:0,covered:0});
+      const svc = byService.get(r.service);
+      svc.current += r.cost;
+
+      // compute hours + spend per SKU+region (reservation model) and per VM (uplift)
+      if (isCompute(r) && (!r.uom || /hour/i.test(r.uom))){
+        const sku = skuFromMeter(r.meter);
+        if (sku && r.region){
+          const k = sku+'|'+r.region;
+          if (!vmAgg.has(k)) vmAgg.set(k,{sku,region:r.region,hours:0,cost:0,payg:null});
+          const g = vmAgg.get(k);
+          g.cost += r.cost;
+          if (r.qty>0) g.hours += r.qty;
+          const pv = r.payg!=null ? r.payg : (r.unitPrice!=null ? r.unitPrice : null);
+          if (pv!=null && g.payg==null) g.payg = pv;
         }
+        if (r.qty>0 && r.resName) hoursByVM.set(r.resName,(hoursByVM.get(r.resName)||0)+r.qty);
       }
 
-      const payg = M.payg ? parseFloat(r[M.payg]) : NaN;
-      if (isFinite(payg) && payg>0 && qty>0){
-        const rr = payg*qty;
-        retail += rr; svc.retail += rr; svc.covered += cost;
-        coveredRetail += rr; coveredCurrent += cost;
-      } else if (M.meterId && r[M.meterId] && qty>0 && cost>0){
-        const id = r[M.meterId];
-        if (!needLookup.has(id)) needLookup.set(id,{qty:0,cost:0,cat,region:M.region?r[M.region]:''});
-        const nl = needLookup.get(id); nl.qty+=qty; nl.cost+=cost;
+      if (r.payg!=null && r.qty>0){
+        const rr = r.payg*r.qty;
+        retail += rr; svc.retail += rr; svc.covered += r.cost;
+        coveredRetail += rr; coveredCurrent += r.cost;
+      } else if (r.meterId && r.qty>0 && r.cost>0 && !r.qtyDerived){
+        if (!needLookup.has(r.meterId)) needLookup.set(r.meterId,{qty:0,cost:0,svc:r.service});
+        const nl = needLookup.get(r.meterId); nl.qty+=r.qty; nl.cost+=r.cost;
       } else {
-        // no comparator — assume no discount on this line (conservative: retail = current)
-        retail += cost; svc.retail += cost;
+        // No PayG comparator for this line. Where the quantity was derived from
+        // the retail rate, retail === current by construction; where nothing is
+        // known, assume no Dev/Test discount. Both are conservative.
+        retail += r.cost; svc.retail += r.cost;
+        if (r.qtyDerived){ svc.covered += r.cost; coveredRetail += r.cost; coveredCurrent += r.cost; }
       }
     }
 
-    // Retail Prices API fallback for meters without PayGPrice
-    S.cappedMeters = 0;
+    // Retail Prices API fallback for meters that had a quantity but no PayGPrice
     if (needLookup.size){
       const allIds = [...needLookup.keys()];
       const CAP = 400;
@@ -487,38 +816,27 @@ async function analyse(){
       for (const id of ids){
         const nl = needLookup.get(id);
         const price = prices.get(id);
-        const svc = byService.get(nl.cat);
+        const svc = byService.get(nl.svc);
         if (price!==null && price!==undefined && price>0){
           const rr = price*nl.qty;
           retail += rr; svc.retail += rr; svc.covered += nl.cost;
           coveredRetail += rr; coveredCurrent += nl.cost;
         } else {
-          retail += nl.cost; svc.retail += nl.cost; // fallback: no delta
+          retail += nl.cost; svc.retail += nl.cost;
         }
         needLookup.delete(id);
       }
-      // anything left over the cap: no delta
       for (const nl of needLookup.values()){
-        retail += nl.cost; byService.get(nl.cat).retail += nl.cost;
+        retail += nl.cost; byService.get(nl.svc).retail += nl.cost;
       }
     }
 
-    S.current=current; S.retail=retail; S.excluded=excluded;
+    S.rows=usage;
+    S.current=current; S.retail=retail;
     S.coveredRetail=coveredRetail; S.coveredCurrent=coveredCurrent;
     S.services=[...byService.values()].sort((a,b)=>b.retail-a.retail);
 
-    // shared: consumed compute hours per VM name from the cost export
-    const hoursByVM = new Map();
-    if (M.resId && M.meterCat){
-      for (const r of rows){
-        if (!/virtual machines/i.test(r[M.meterCat]||'')) continue;
-        const nm = String(r[M.resId]||'').toLowerCase().split('/').pop();
-        const q = parseFloat(r[M.qty])||0;
-        if (nm) hoursByVM.set(nm,(hoursByVM.get(nm)||0)+q);
-      }
-    }
-
-    // VM inventory (parsed once, shared by the uplift and reservation modelling)
+    // ---- VM inventory: Windows uplift + exact reservation SKUs ----
     S.winVMs=[]; S.upliftAuto=0; S.invStats=null;
     const inv = S.invFile ? await getInventory() : null;
     if (inv){
@@ -526,9 +844,6 @@ async function analyse(){
       await buildUplift(inv, hoursByVM);
     }
 
-    // Reservation modelling (Azure Plan only). Prefer the inventory's exact ARM
-    // SKUs + instance counts when provided — that's what the inventory is for —
-    // and only fall back to SKUs reconstructed from cost meter names.
     setStatus('Pricing reservations…');
     let resGroups = inv ? inventoryReservationGroups(inv, hoursByVM, vmAgg) : null;
     const fromInventory = !!(resGroups && resGroups.length);
@@ -550,6 +865,18 @@ async function analyse(){
   $('btnAnalyse').disabled=false;
 }
 
+// A file we can't use must not leave the previous run's numbers on screen —
+// otherwise the warning reads as a note on results that are actually stale.
+function reject(){
+  S.schema=null; $('results').style.display='none';
+  setStatus(''); $('btnAnalyse').disabled=false;
+}
+// Compute lines, whichever axis the export names them on.
+function isCompute(r){
+  return /virtual machines/i.test(r.service) || /^microsoft\.compute$/i.test(r.service);
+}
+function odata(s){ return String(s).replace(/'/g,"''"); }
+
 /* ================= retail prices api ================= */
 const priceCache = new Map();
 const RETAIL_BASE = 'https://prices.azure.com/api/retail/prices';
@@ -567,6 +894,17 @@ async function fetchJson(url,ms=12000){
     if(!r.ok) throw new Error('HTTP '+r.status);
     return await r.json();
   } finally { clearTimeout(t); }
+}
+// Run one filter to exhaustion, following NextPageLink. Used wherever a single
+// query has to return every match (meter-name batches, VM SKU rate cards).
+async function retailAll(filter, maxPages=8){
+  let items=[], next=retailUrl(filter), guard=0;
+  while (next && guard++ < maxPages){
+    const j = await fetchJson(next);
+    items = items.concat(j.Items||[]);
+    next = j.NextPageLink || null;
+  }
+  return items;
 }
 
 // Resolve retail prices for many meterIds at once. The old code fired one request
@@ -655,10 +993,18 @@ async function vmRates(sku,region){
 
 // "D4s v5" (meter name) -> "Standard_D4s_v5" (ARM SKU the Retail API expects).
 function skuFromMeter(meterName){
-  const mn = String(meterName||'').trim();
+  let mn = String(meterName||'').trim();
   if (!mn) return null;
-  if (/^standard_/i.test(mn)) return mn;
-  return 'Standard_'+mn.replace(/\s+/g,'_');
+  if (/^standard_/i.test(mn)) return mn.replace(/\s+/g,'_');
+  // strip the qualifiers Cost Management appends to VM meter names
+  mn = mn.replace(/\s*-\s*(free|expired|preview)\b.*$/i,'')
+         .replace(/\b(low priority|spot|windows|linux)\b/ig,'').trim();
+  // combined meters like "D2/D2s v3" cover both variants — the "s" (premium
+  // storage) SKU is the one estates actually run, so prefer it
+  const m = mn.match(/^([A-Za-z0-9]+)\/([A-Za-z0-9]+)(\s+.*)?$/);
+  if (m) mn = m[2] + (m[3]||'');
+  mn = mn.replace(/\s+/g,' ').trim();
+  return mn ? 'Standard_'+mn.replace(/\s+/g,'_') : null;
 }
 
 /* ================= reservation modelling ================= */
@@ -702,8 +1048,8 @@ function recalcResRates(){
     else { v.r3 = m!=null ? m*(1-d3) : null; v.est3 = v.r3!=null; }
   });
 }
-// Region/SKU normalisers shared by the cost and inventory paths.
-function normRegion(s){ return String(s||'').toLowerCase().replace(/\s+/g,''); }
+// Inventory SKUs arrive as ARM names already ("Standard_D4s_v5"); regions go
+// through armRegion() so a portal display name matches the cost export.
 function normArmSku(s){ const t=String(s||'').trim(); return t ? t.replace(/\s+/g,'_') : null; }
 
 // Parse the VM inventory once, tolerating Resource Graph export quirks: a BOM,
@@ -711,9 +1057,7 @@ function normArmSku(s){ const t=String(s||'').trim(); return t ? t.replace(/\s+/
 // alternative header spellings. Returns {data, c(olumns), fields} or null.
 async function getInventory(){
   try{
-    const parsed = typeof S.invFile==='string'
-      ? Papa.parse(S.invFile,{header:true,skipEmptyLines:true})
-      : await parseFile(S.invFile);
+    const parsed = await parseCsv(S.invFile);
     const f = parsed.meta.fields||[];
     const nf = f.map(x=>({raw:x,n:norm(x)}));
     const pick=(...cands)=>{
@@ -745,23 +1089,38 @@ function inventoryReservationGroups(inv, hoursByVM, vmAgg){
   for (const row of inv.data){
     const sku = normArmSku(row[inv.c.size]);
     if (!sku) continue;
-    const region = inv.c.loc ? normRegion(row[inv.c.loc]) : '';
+    const region = inv.c.loc ? armRegion(row[inv.c.loc]) : '';
     const name = String(row[inv.c.name]||'').trim().toLowerCase();
     const k = sku+'|'+region;
-    if (!groups.has(k)) groups.set(k,{sku,region,hours:0,count:0,payg:null});
+    if (!groups.has(k)) groups.set(k,{sku,region,hours:0,count:0,payg:null,cost:0});
     const g = groups.get(k);
     g.count += 1;
     const h = hoursByVM.get(name);
     g.hours += (h && h>0) ? h : 730;
-    if (g.payg==null && vmAgg.has(k) && vmAgg.get(k).payg!=null) g.payg = vmAgg.get(k).payg;
+    if (vmAgg.has(k)){
+      const a = vmAgg.get(k);
+      if (g.payg==null && a.payg!=null) g.payg = a.payg;
+      g.cost = a.cost;
+    }
   }
-  return [...groups.values()];
+  return [...groups.values()].map(g=>impliedRate(g));
+}
+
+// Last-resort hourly rate: this SKU's compute spend divided by its hours. Used
+// when neither the export nor the Retail Prices API supplied a unit price —
+// which is exactly the blocked-network case. Dev/Test bills compute at the
+// Linux PAYG rate, so cost ÷ hours IS the PAYG rate to within rounding, and it
+// keeps the reservation model alive with no outbound calls at all.
+function impliedRate(g){
+  if (g.payg==null && g.cost>0 && g.hours>0){ g.payg = g.cost/g.hours; g.paygImplied = true; }
+  return g;
 }
 
 // Fallback groups derived from cost-export meter names (no inventory).
 function vmAggToGroups(vmAgg){
   return [...vmAgg.values()].filter(g=>g.hours>0)
-    .map(g=>({sku:g.sku, region:g.region, hours:g.hours, payg:g.payg, count:Math.max(1,Math.round(g.hours/730))}));
+    .map(g=>impliedRate({sku:g.sku, region:g.region, hours:g.hours, cost:g.cost, payg:g.payg,
+                         count:Math.max(1,Math.round(g.hours/730))}));
 }
 
 async function buildReservations(groups){
@@ -777,6 +1136,7 @@ async function buildReservations(groups){
     S.reserv.push({
       sku:g.sku, region:g.region, hours:Math.round(g.hours), count, qty:count,
       payg: (rates&&rates.payg!=null) ? rates.payg : (g.payg!=null?g.payg:null),
+      paygImplied: !(rates&&rates.payg!=null) && !!g.paygImplied,
       apiR1: rates?rates.r1:null, apiR3: rates?rates.r3:null,
       r1:null, r3:null, est1:false, est3:false, term:'none'
     });
@@ -792,7 +1152,7 @@ async function buildUplift(inv, hoursByVM){
     if (!/windows/i.test(String(row[c.os]||''))) continue;
     const name=String(row[c.name]||'').trim();
     const size=String(row[c.size]||'').trim();
-    const region=c.loc?normRegion(row[c.loc]):'';
+    const region=c.loc?armRegion(row[c.loc]):'';
     const pair = await vmPricePair(size,region);
     const matched = hoursByVM.get(name.toLowerCase());
     const hours = matched && matched>0 ? Math.round(matched) : 730;
@@ -820,14 +1180,10 @@ function render(){
   $('kpiCoverage').textContent = covPct>=99.5 ? 'full retail comparator coverage'
     : `${covPct.toFixed(0)}% of spend had a retail comparator`;
 
-  // Explain WHY savings may be missing, and how to fix it. The common cause is a
-  // CSV with no PayGPrice column combined with a network that blocks the Retail
-  // Prices API — in that case every line has no comparator, so savings read as 0.
+  // Only warn about things the data-quality panel can't already say in place.
   const warnings = [];
-  if (S.apiFailed && covPct < 99.5){
-    warnings.push('The Azure Retail Prices API could not be reached from this network, so retail rates for some meters are unknown. Those lines are treated as having no Dev/Test discount, which understates the savings and the break-even shown. Fix: export "Cost Management → Cost analysis → Cost and usage details (actual cost)" — that file includes a PayGPrice column and is priced entirely offline, no API needed.');
-  } else if (covPct < 50){
-    warnings.push('Only '+covPct.toFixed(0)+'% of spend had a retail (PayG) comparator, so the Dev/Test saving is likely understated. Use the "Cost and usage details (actual cost)" export, which includes a PayGPrice column for every line.');
+  if (S.apiFailed){
+    warnings.push('The Azure Retail Prices API (prices.azure.com) could not be reached from this network. Anything that needs live rates — retail comparators, derived quantities, reservation rates — is degraded or estimated. The Cloud Shell route on step 01 avoids it entirely: that export carries PayGPrice, and reservation rates fall back to the assumed discounts you set in step 04.');
   }
   if (S.cappedMeters>0){
     warnings.push(`Priced the first 400 distinct meters via the API; ${S.cappedMeters} further meter(s) are shown at no Dev/Test delta, so the break-even is conservative.`);
@@ -865,9 +1221,72 @@ function render(){
     }
   }
 
+  renderQuality();
   renderReservations();
   update();
   renderServices();
+}
+
+/* Say plainly what this particular file can and can't answer, and what to do
+   about each gap. The old tool showed a single generic warning; most of the
+   time the user's real question is "why is this number zero?". */
+function renderQuality(){
+  const q = S.schema; if (!q || !$('qualityTable')) return;
+  const covPct = S.current>0 ? (S.coveredCurrent/S.current*100) : 0;
+  const derivedPct = q.derived+q.unresolved > 0 ? q.derived/(q.derived+q.unresolved)*100 : 0;
+  const vmHours = S.reserv.reduce((t,v)=>t+v.hours,0);
+
+  const pill = s => s==='ok' ? '<span class="pill-ok">good</span>'
+                  : s==='part' ? '<span class="pill-part">partial</span>'
+                  : '<span class="pill-no">missing</span>';
+  const row = (what,state,note)=>`<tr><td>${what}</td><td>${pill(state)}</td><td class="hint">${note}</td></tr>`;
+
+  const rows = [];
+  rows.push(row('Current Dev/Test spend','ok',
+    `${fmt2(S.current)} of usage charges across ${q.rows.toLocaleString()} line(s)`
+    + (q.days>1?`, ${q.days} day(s)`:'')
+    + (S.excluded>0.5?`. ${fmt(S.excluded)} of marketplace/purchase charges excluded — they bill identically on either offer.`:'.')));
+
+  rows.push(row('Service breakdown','ok',
+    `${S.services.length} service(s) identified from the ${q.cols.service?'"'+esc(q.cols.service)+'"':'service'} column.`));
+
+  if (q.hasPayg){
+    rows.push(row('Retail (PayG) comparator','ok',
+      'This export carries <code>PayGPrice</code>, so every line is repriced offline against the real PAYG rate — any genuine Dev/Test rate discount is captured.'));
+  } else if (q.hasQty){
+    rows.push(row('Retail (PayG) comparator', covPct>=80?'ok':(covPct>=30?'part':'no'),
+      `${covPct.toFixed(0)}% of spend had a retail comparator, looked up per <code>MeterId</code> from the Retail Prices API. Add <code>PayGPrice</code> (Cloud Shell or Cost Management export route) to price the rest offline.`));
+  } else {
+    rows.push(row('Retail (PayG) comparator','part',
+      'No unit prices in this file, so the tool assumes the Dev/Test rate equals the PAYG rate for the meters present. That is true for VMs (before Windows licensing) and storage, but understates CSP cost where Dev/Test genuinely discounts a meter — App Service, Logic Apps, Cloud Services, HDInsight. <strong>The break-even shown is therefore a floor.</strong> Use the Cloud Shell route for a line-by-line comparison.'));
+  }
+
+  if (q.hasQty){
+    rows.push(row('Usage quantities','ok','Read directly from the export\'s <code>Quantity</code> column.'));
+  } else if (q.derived){
+    rows.push(row('Usage quantities', derivedPct>=80?'ok':'part',
+      `Derived for ${q.derived} of ${q.derived+q.unresolved} line(s) by dividing cost by the meter's retail unit rate`
+      + (q.unresolved?`; ${q.unresolved} line(s) had no matching retail meter and contribute no quantity.`:'.')));
+  } else {
+    rows.push(row('Usage quantities','no',
+      S.apiFailed
+        ? 'No <code>Quantity</code> column, and the Retail Prices API could not be reached from this network, so quantities could not be derived. Reservations and the Windows uplift need a VM inventory to be modelled at all — or use the Cloud Shell route, which needs no outbound access from this browser.'
+        : 'No <code>Quantity</code> column and no meter could be matched to a retail rate. Check that the export has a <code>Meter</code> column and a real region in <code>ResourceLocation</code>.'));
+  }
+
+  const upl = $('ahbToggle').checked ? 'ok' : (S.winVMs.length ? 'ok' : 'no');
+  rows.push(row('Windows licensing uplift', upl,
+    $('ahbToggle').checked ? 'Azure Hybrid Benefit ticked — no uplift payable, so none is added.'
+    : S.winVMs.length ? `${S.winVMs.length} Windows VM(s) from the inventory, priced at the Windows−Linux rate delta.`
+    : 'No VM inventory supplied, so the uplift is assumed to be zero. If the estate has Windows VMs the real CSP cost is <strong>higher</strong> than shown — add the inventory CSV or set a manual override below.'));
+
+  rows.push(row('Reservation modelling', S.reserv.length?'ok':'no',
+    S.reserv.length
+      ? `${S.reserv.length} SKU/region group(s) covering ${Math.round(vmHours).toLocaleString()} compute hours, SKUs ${S.invStats&&S.invStats.fromInventory?'taken from the VM inventory (exact ARM SKUs)':'reconstructed from meter names'}.`
+      : 'No Virtual Machines usage found in this period, so there is nothing to reserve. Reservations are usually the lever that tips a Dev/Test → Azure Plan move, so if the estate does run VMs, check the export covers a month when they were running.'));
+
+  $('qualityTable').querySelector('tbody').innerHTML = rows.join('');
+  $('qualitySub').innerHTML = `Detected: <strong>${esc(q.label)}</strong>. Every figure below is only as good as its input — this is what yours can and can't answer.`;
 }
 
 function renderReservations(){
@@ -890,7 +1309,7 @@ function renderReservations(){
       <td><span class="pill res">VM</span> <span class="num">${esc(v.sku)}</span></td>
       <td class="num">${esc(v.region)}</td>
       <td class="r num">${v.hours}</td>
-      <td class="r num">${paygMonthly!=null?fmt(paygMonthly):'<span class="hint">n/a</span>'}</td>
+      <td class="r num">${paygMonthly!=null?fmt(paygMonthly)+(v.paygImplied?'<span class="hint"> · implied</span>':''):'<span class="hint">n/a</span>'}</td>
       <td class="r num">${priceCell(v.r1,v.payg,v.est1)}</td>
       <td class="r num">${priceCell(v.r3,v.payg,v.est3)}</td>
       <td><select class="term" data-i="${i}" aria-label="Reservation term for ${esc(v.sku)}">${opt('none','None')}${opt('1y','1-year')}${opt('3y','3-year')}</select></td>
@@ -1106,7 +1525,18 @@ function demoData(){
   rows.push(`Contoso Dev,MTR-mkt,Marketplace,SaaS,Some ISV Tool,1,120,120,120,120.00,GBP,uksouth,Usage,Marketplace,/subscriptions/x/rg/isv,1/Month`);
   const cost=H+rows.join('\n');
   const inv='name,vmSize,osType,location\nvm-build-01,Standard_D4s_v5,Windows,uksouth\nvm-build-02,Standard_D4s_v5,Windows,uksouth\nvm-sql-dev,Standard_E8s_v5,Windows,uksouth\nvm-web-tst,Standard_D2s_v5,Linux,uksouth';
-  return {cost,inv};
+  // The same estate as it arrives from Cost analysis → Download (CSV): resource
+  // rows, no Quantity, no unit prices, region as a display name.
+  const costAnalysis = [
+    'ResourceId,ResourceType,ResourceLocation,ResourceGroupName,ServiceName,ServiceTier,Meter,Tags,CostUSD,Cost,Currency',
+    '/subscriptions/x/resourceGroups/rg-dev/providers/Microsoft.Compute/virtualMachines/vm-build-01,microsoft.compute/virtualmachines,UK South,rg-dev,Virtual Machines,Dsv5 Series,D4s v5,,145.44,109.44,GBP',
+    '/subscriptions/x/resourceGroups/rg-dev/providers/Microsoft.Compute/virtualMachines/vm-build-02,microsoft.compute/virtualmachines,UK South,rg-dev,Virtual Machines,Dsv5 Series,D4s v5,,163.62,123.12,GBP',
+    '/subscriptions/x/resourceGroups/rg-dev/providers/Microsoft.Compute/virtualMachines/vm-sql-dev,microsoft.compute/virtualmachines,UK South,rg-dev,Virtual Machines,Esv5 Series,E8s v5,,318.15,239.40,GBP',
+    '/subscriptions/x/resourceGroups/rg-dev/providers/Microsoft.Compute/virtualMachines/vm-web-tst,microsoft.compute/virtualmachines,UK South,rg-dev,Virtual Machines,Dsv5 Series,D2s v5,,57.12,43.00,GBP',
+    '/subscriptions/x/resourceGroups/rg-dev/providers/Microsoft.Compute/disks/vm-build-01_osdisk,microsoft.compute/disks,UK South,rg-dev,Storage,Standard SSD Managed Disks,E10 LRS Disk,,3.81,2.87,GBP',
+    '/subscriptions/x/resourceGroups/rg-dev/providers/Microsoft.Network/publicIPAddresses/nat-pip,microsoft.network/publicipaddresses,UK South,rg-dev,Virtual Network,IP Addresses,Standard IPv4 Static Public IP,,1.48,1.11,GBP'
+  ].join('\n');
+  return {cost,inv,costAnalysis};
 }
 
 /* ================= wiring ================= */
@@ -1115,30 +1545,62 @@ function setStatus(t){$('status').textContent=t;}
 function showWarn(t){const w=$('warnBox');w.textContent=t;w.style.display='block';}
 function hideWarn(){$('warnBox').style.display='none';}
 
-function wireDropzone(dzId,inputId,tagId,key){
+function refreshReady(){ $('btnAnalyse').disabled = !S.costFile; }
+function wireDropzone(dzId,inputId,tagId,key,pasteId){
   const dz=$(dzId),inp=$(inputId);
-  const setFile=f=>{S[key]=f;$(tagId).textContent=f.name;dz.classList.add('loaded');$('btnAnalyse').disabled=!S.costFile;};
+  const setFile=f=>{S[key]=f;$(tagId).textContent=f.name;dz.classList.add('loaded');refreshReady();};
   dz.addEventListener('click',()=>inp.click());
   dz.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();inp.click();}});
   inp.addEventListener('change',()=>{if(inp.files[0])setFile(inp.files[0]);});
   ['dragover','dragenter'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('drag');}));
   ['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove('drag');}));
   dz.addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(f)setFile(f);});
+  // Pasting CSV text is the escape hatch for locked-down machines where the
+  // download lands somewhere the browser file picker can't reach.
+  const ta=$(pasteId);
+  ta.addEventListener('input',()=>{
+    const v=ta.value.trim();
+    if (v){ S[key]=v; $(tagId).textContent='pasted CSV'; dz.classList.add('loaded'); }
+    else { S[key]=null; $(tagId).textContent=''; dz.classList.remove('loaded'); }
+    refreshReady();
+  });
 }
-wireDropzone('dzCost','fileCost','tagCost','costFile');
-wireDropzone('dzInv','fileInv','tagInv','invFile');
+wireDropzone('dzCost','fileCost','tagCost','costFile','pasteCost');
+wireDropzone('dzInv','fileInv','tagInv','invFile','pasteInv');
+
+document.querySelectorAll('.paste-toggle').forEach(b=>b.addEventListener('click',()=>{
+  const ta=$(b.dataset.paste), show=ta.hidden;
+  ta.hidden=!show; b.textContent = show ? 'hide paste box' : 'or paste CSV text';
+  if (show) ta.focus();
+}));
+
+$('routeTabs').addEventListener('click',e=>{
+  const b=e.target.closest('button[data-route]'); if(!b) return;
+  $('routeTabs').querySelectorAll('button').forEach(x=>x.setAttribute('aria-selected', String(x===b)));
+  ['portal','shell','export'].forEach(r=>{
+    $('route'+r[0].toUpperCase()+r.slice(1)).hidden = (r!==b.dataset.route);
+  });
+});
+
+document.querySelectorAll('.copy[data-copy]').forEach(b=>b.addEventListener('click',async()=>{
+  try{ await navigator.clipboard.writeText($(b.dataset.copy).textContent); b.textContent='Copied ✓'; }
+  catch(e){ b.textContent='Select & copy'; }
+  setTimeout(()=>b.textContent='Copy',2000);
+}));
 
 $('btnAnalyse').addEventListener('click',analyse);
-$('btnDemo').addEventListener('click',()=>{
+function loadDemo(costCsv,label){
   const d=demoData();
-  S.costFile=d.cost;S.invFile=d.inv;
-  $('tagCost').textContent='demo-cost-export.csv';$('dzCost').classList.add('loaded');
+  S.costFile=costCsv;S.invFile=d.inv;
+  $('tagCost').textContent=label;$('dzCost').classList.add('loaded');
   $('tagInv').textContent='demo-vm-inventory.csv';$('dzInv').classList.add('loaded');
-  $('btnAnalyse').disabled=false;
+  refreshReady();
   analyse();
-});
+}
+$('btnDemo').addEventListener('click',()=>loadDemo(demoData().cost,'demo-usage-details.csv'));
+$('btnDemo2').addEventListener('click',()=>loadDemo(demoData().costAnalysis,'demo-cost-analysis.csv'));
 $('discSlider').addEventListener('input',update);
-$('ahbToggle').addEventListener('change',update);
+$('ahbToggle').addEventListener('change',()=>{ update(); renderQuality(); });
 $('upliftOverride').addEventListener('input',update);
 $('reservAll').addEventListener('click',e=>{
   const b=e.target.closest('button'); if(b) applyAllTerms(b.dataset.term);
