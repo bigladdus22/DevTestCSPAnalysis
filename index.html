@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root{
   --ink:#101826;
@@ -182,18 +183,23 @@ td select.term:focus-visible,td input.qty:focus-visible{outline:2px solid var(--
 footer{border-top:1px solid var(--line);padding:20px 0 40px;color:var(--ink-faint);font-size:12.5px}
 footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 
+/* ---------- mode switch ---------- */
+.mode-tabs{margin-bottom:18px}
+.mode-tabs button{font-size:14px;padding:9px 16px}
+[hidden]{display:none!important}
+
 /* ---------- print / PDF ---------- */
 @media print{
   *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
   body{background:#fff;font-size:11.5px}
   header{padding:14px 0}
   main{padding:10px 0 0}
-  .privacy,#inputPanel,.actions,#reservAll,.slider-zone input[type=range],
+  .privacy,#inputPanel,#fcInput,#modeTabs,.actions,#reservAll,.slider-zone input[type=range],
   #warnBox,#status,.be-tick::after{display:none!important}
   .panel,.kpi,.verdict,#allupTable,table{break-inside:avoid}
   .panel{border-color:#ccc;margin-bottom:12px;padding:14px 16px}
   #results{display:block!important}
-  td select.term,td input.qty,td input.hrs,#supportPct,#resDisc1,#resDisc2,#resDisc3,#upliftOverride{
+  td select.term,td input.qty,td input.hrs,#fcSupportPct,#supportPct,#resDisc1,#resDisc2,#resDisc3,#upliftOverride{
     border:none;background:transparent;-webkit-appearance:none;appearance:none;font-weight:600;padding:0}
   a[href]:after{content:''}
 }
@@ -205,13 +211,134 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
   <div class="wrap masthead">
     <div>
       <h1><span class="path">dev/test&nbsp;→&nbsp;csp</span> &nbsp;Break-Even Analyser</h1>
-      <p>Reprices a Dev/Test subscription's actual usage at Azure Plan (CSP) retail rates and finds the partner discount at which the move makes commercial sense.</p>
+      <p>Reprices a Dev/Test subscription's actual usage, or a planned estate from the Azure pricing calculator, at Azure Plan (CSP) retail rates and finds the partner discount at which Azure Plan makes commercial sense.</p>
     </div>
     <div class="privacy">🔒 Runs entirely in your browser — no data is uploaded</div>
   </div>
 </header>
 
 <main class="wrap">
+
+  <!-- MODE SWITCH: analyse an existing Dev/Test subscription, or forecast planned resources -->
+  <div class="tabs mode-tabs" id="modeTabs" role="tablist" aria-label="Choose what to do">
+    <button type="button" role="tab" data-mode="analyse" aria-selected="true"><span class="tag">Already on Dev/Test</span>Analyse an existing subscription</button>
+    <button type="button" role="tab" data-mode="forecast" aria-selected="false"><span class="tag">Planning · nothing deployed yet</span>Forecast planned resources</button>
+  </div>
+
+  <!-- ================= FORECAST MODE ================= -->
+  <div id="modeForecast" hidden>
+
+  <section class="panel" id="fcInput">
+    <h2><span class="step">01</span>Import a pricing calculator estimate</h2>
+    <p class="sub">Price the resources the customer plans to run, then see them side by side on a <strong>Pay-As-You-Go Dev/Test</strong> subscription and a standard <strong>Azure Plan (CSP)</strong> subscription. Every line is repriced from the public Azure Retail Prices API in <strong>USD</strong>, the currency Microsoft prices Azure in.</p>
+    <div class="route">
+      <ol>
+        <li>Open the <a href="https://azure.microsoft.com/pricing/calculator/" target="_blank" rel="noopener">Azure pricing calculator</a> and add the planned resources (VMs, SQL Database, SQL Managed Instance, App Service, storage, networking and so on).</li>
+        <li>Set the currency to <strong>United States – Dollar ($) USD</strong> and leave <strong>Dev/Test pricing off</strong>. This tool works out the Dev/Test side itself.</li>
+        <li><strong>Export</strong> the estimate (Excel) and drop the <code>.xlsx</code> file below.</li>
+      </ol>
+    </div>
+    <div class="dz-row" style="margin-top:12px;grid-template-columns:1fr">
+      <div>
+        <div class="dropzone" id="dzFc" tabindex="0" role="button" aria-label="Upload pricing calculator export">
+          <strong>Pricing calculator export (.xlsx)</strong>
+          <span>Drag &amp; drop or click to browse · the file is read in your browser and never uploaded</span>
+          <span class="file-tag" id="tagFc"></span>
+          <input type="file" id="fileFc" accept=".xlsx" hidden>
+        </div>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn-primary" id="btnForecast" disabled>Build forecast</button>
+      <button class="btn-ghost" id="btnFcDemo">Demo: sample estimate</button>
+    </div>
+    <div class="status" id="fcStatus"></div>
+    <div class="warn-box" id="fcWarn"></div>
+  </section>
+
+  <div id="fcResults" hidden>
+    <section class="verdict" aria-live="polite">
+      <div class="verdict-banner" id="fcBanner">
+        <div>
+          <h3 id="fcVerdictTitle">—</h3>
+          <p id="fcVerdictSub">—</p>
+        </div>
+        <div class="verdict-delta">
+          <div class="big num" id="fcVerdictDelta">—</div>
+          <div class="lbl">per month at selected discount</div>
+        </div>
+      </div>
+      <div class="slider-zone">
+        <div class="slider-head">
+          <div class="cur">CSP discount: <span class="num" id="fcDiscLabel">10.0%</span></div>
+          <div class="be">Break-even at <span class="num" id="fcBeLabel">—</span>: any discount above this beats Dev/Test</div>
+        </div>
+        <div class="track-wrap">
+          <div class="track" id="fcTrack"></div>
+          <div class="be-tick" id="fcBeTick" style="left:50%"></div>
+          <input type="range" id="fcDisc" min="0" max="30" step="0.5" value="10" aria-label="CSP discount percentage">
+        </div>
+        <div class="scale"><span>0%</span><span>5</span><span>10</span><span>15</span><span>20</span><span>25</span><span>30%</span></div>
+      </div>
+    </section>
+
+    <div class="kpis">
+      <div class="kpi"><div class="lbl">Dev/Test subscription</div><div class="val num" id="fcKpiDev">—</div><div class="note">per month, Pay-As-You-Go Dev/Test rates</div></div>
+      <div class="kpi"><div class="lbl">Azure Plan at retail (PAYG)</div><div class="val num" id="fcKpiPayg">—</div><div class="note" id="fcKpiPaygNote">per month, before discount</div></div>
+      <div class="kpi"><div class="lbl">Azure Plan at selected discount</div><div class="val num" id="fcKpiAp">—</div><div class="note">PAYG less partner discount</div></div>
+    </div>
+
+    <section class="panel" id="fcLinesPanel">
+      <h2><span class="step">02</span>Side by side, line by line</h2>
+      <p class="sub">Each calculator line priced both ways. <strong>Dev/Test only discounts some services</strong>: Windows VMs are billed at the Linux rate, the SQL licence is free on General Purpose and Business Critical SQL Database and SQL Managed Instance, and App Service plans have lower Dev/Test rates. Everything else costs the same on both sides. Mark any line that is a <strong>production</strong> workload: production can't run on Dev/Test, so it costs the same on both sides.</p>
+      <div class="toggle-row">
+        <label class="toggle"><input type="checkbox" id="fcAhb"> Azure Hybrid Benefit for Windows Server on Azure Plan (existing licences with SA). Removes the Windows licence charge</label>
+      </div>
+      <div style="overflow-x:auto"><table id="fcTable">
+        <thead><tr><th>Resource</th><th>Workload</th><th class="r">Dev/Test /mo</th><th class="r">Azure Plan PAYG /mo</th><th class="r">Dev/Test saving</th><th>How it's priced</th></tr></thead>
+        <tbody></tbody>
+        <tfoot></tfoot>
+      </table></div>
+      <p class="hint" style="margin-top:10px">To correct a line, type your own figure into its Dev/Test cell. Lines marked <span class="pill-part">check</span> were only partly understood. Review them before sharing.</p>
+    </section>
+
+    <section class="panel" id="fcAllupPanel">
+      <h2><span class="step">03</span>All-up business case</h2>
+      <p class="sub">Monthly and yearly totals at the selected discount, with both sides at pay-as-you-go rates. The support value is your estimate of the risk carried by running on Dev/Test with <strong>no financially-backed SLA</strong>.</p>
+      <div class="toggle-row">
+        <span class="inline-input">Support / SLA opportunity value <input type="number" id="fcSupportPct" min="0" max="100" step="1" value="10">% of Dev/Test spend</span>
+      </div>
+      <div style="overflow-x:auto"><table id="fcAllupTable">
+        <thead><tr><th>Line</th><th class="r">Per month</th><th class="r">Per year</th></tr></thead>
+        <tbody></tbody>
+        <tfoot></tfoot>
+      </table></div>
+      <p class="hint" id="fcSummaryVerdict" style="margin-top:12px"></p>
+    </section>
+
+    <section class="panel">
+      <h2><span class="step">04</span>What the forecast can't show</h2>
+      <ul class="note-list">
+        <li><strong>Dev/Test is for non-production use only.</strong> Running production on a Dev/Test offer is prohibited, and every user of the subscription needs an active Visual Studio subscription. A forecast that relies on Dev/Test rates for production workloads isn't a valid option.</li>
+        <li><strong>No financially-backed SLA on Dev/Test.</strong> Azure Plan restores standard SLAs.</li>
+        <li><strong>Hyperscale has no SQL licence fee</strong>, so Dev/Test saves nothing on Hyperscale databases (<a href="https://learn.microsoft.com/azure/azure-sql/database/service-tier-hyperscale" target="_blank" rel="noopener">Microsoft Learn</a>). General Purpose and Business Critical are eligible for Dev/Test licence pricing (<a href="https://learn.microsoft.com/azure/azure-sql/database/service-tiers-sql-database-vcore#service-tiers" target="_blank" rel="noopener">Microsoft Learn</a>).</li>
+        <li><strong>Dev/Test rates come from the public Retail Prices API</strong> (<code>DevTestConsumption</code> price type, <a href="https://learn.microsoft.com/rest/api/cost-management/retail-prices/azure-retail-prices" target="_blank" rel="noopener">Microsoft Learn</a>). We assume they match what the Pay-As-You-Go Dev/Test offer charges. The API doesn't say which Dev/Test offer they belong to.</li>
+        <li><strong>Pay-as-you-go on both sides.</strong> A Pay-As-You-Go Dev/Test subscription can't hold reservations, so the forecast compares PAYG with PAYG. Calculator lines priced on a reservation or savings plan are converted back to PAYG rates.</li>
+        <li><strong>Not modelled yet:</strong> the SQL Server licence on SQL VMs, and serverless SQL. These lines are priced the same on both sides, which understates Dev/Test's advantage on those lines.</li>
+        <li><strong>Estimates only</strong>, not a quote. Validate against a formal CSP quote before contracting.</li>
+      </ul>
+    </section>
+
+    <div class="actions">
+      <button class="btn-primary" id="fcBtnPDF">Download PDF report</button>
+      <button class="btn-ghost" id="fcBtnCopy">Copy summary to clipboard</button>
+      <span class="hint" id="fcCopyDone"></span>
+    </div>
+  </div>
+  </div>
+  <!-- ================= /FORECAST MODE ================= -->
+
+  <div id="modeAnalyse">
 
   <!-- STEP 1: get the data -->
   <section class="panel" id="inputPanel">
@@ -445,6 +572,7 @@ download vm-inventory.csv</pre></div>
       <span class="hint" id="copyDone"></span>
     </div>
   </div>
+  </div><!-- /modeAnalyse -->
 </main>
 
 <footer>
@@ -1614,6 +1742,457 @@ $('btnCopy').addEventListener('click',async()=>{
   try{await navigator.clipboard.writeText(buildSummary());$('copyDone').textContent='Copied ✓';}
   catch(e){$('copyDone').textContent='Copy failed — select and copy manually.';}
   setTimeout(()=>$('copyDone').textContent='',2500);
+});
+</script>
+<script>
+'use strict';
+/* =====================================================================
+   FORECAST MODE
+   Takes an Azure pricing calculator export (planned resources, nothing
+   deployed yet) and prices every line two ways:
+     • Pay-As-You-Go Dev/Test subscription
+     • standard Azure Plan (CSP) subscription
+   All in USD, the currency Microsoft prices Azure in.
+
+   Method. The calculator's own monthly figure is taken as the Azure Plan
+   PAYG cost of the line (it is retail pricing). Dev/Test only changes a
+   few meters, so per line we work out just the DISCOUNTABLE component
+   from the Retail Prices API and subtract it:
+     • VMs: Windows is billed at the Linux rate (no licence meter)
+     • SQL Database / SQL MI vCore (GP, BC): SQL licence meter is $0
+       (Hyperscale has no licence fee, so no saving there)
+     • App Service plans: published DevTestConsumption rate
+     • everything else: no published Dev/Test rate, same on both sides
+   Where the calculator line was priced on a reservation or savings plan,
+   the compute is rebased to PAYG first (Dev/Test can't reserve), and the
+   reservation is then offered back as an Azure Plan-only lever.
+   ===================================================================== */
+const F = { file:null, lines:[], meta:{}, apiFailed:false };
+const fmtU  = v => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(v);
+const fmtU2 = v => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:2}).format(v);
+const fmtRate = v => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',minimumFractionDigits:3,maximumFractionDigits:4}).format(v);
+const fcCache = new Map();
+const num = s => { const n = parseFloat(String(s==null?'':s).replace(/,/g,'')); return isFinite(n)?n:0; };
+
+function fcUrl(filter, preview){
+  return `${RETAIL_BASE}?${preview?'api-version=2023-01-01-preview&':''}currencyCode='USD'&$filter=${encodeURIComponent(filter)}`;
+}
+async function fcAll(filter, preview, maxPages=12){
+  const key = 'q:'+(preview?'p:':'')+filter;
+  if (fcCache.has(key)) return fcCache.get(key);
+  let items=[], next=fcUrl(filter,preview), guard=0;
+  try{
+    while (next && guard++ < maxPages){
+      let j;
+      try { j = await fetchJson(next, 20000); }
+      catch(e){ await new Promise(r=>setTimeout(r,800)); j = await fetchJson(next, 20000); }  // one retry for transient failures
+      items = items.concat(j.Items||[]);
+      next = j.NextPageLink || null;
+    }
+  }catch(e){ F.apiFailed=true; fcCache.set(key,null); return null; }
+  fcCache.set(key,items); return items;
+}
+const noSpot = i => !/spot|low priority/i.test((i.skuName||'')+' '+(i.meterName||''));
+const minOf = arr => arr.length ? Math.min(...arr) : null;
+
+/* ---------- read the .xlsx ---------- */
+async function readCalculatorExport(file){
+  if (typeof XLSX === 'undefined') throw new Error('The spreadsheet reader (SheetJS) did not load. Check that cdnjs.cloudflare.com is reachable.');
+  const wb = XLSX.read(await file.arrayBuffer(), {type:'array'});
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const grid = XLSX.utils.sheet_to_json(ws,{header:1, defval:'', raw:true});
+  let h = -1;
+  for (let i=0;i<Math.min(grid.length,30);i++){
+    const r = grid[i].map(c=>norm(c));
+    if (r.includes('servicetype') && r.includes('description')){ h=i; break; }
+  }
+  if (h<0) throw new Error("This doesn't look like a pricing calculator export: no header row with 'Service type' and 'Description'.");
+  const head = grid[h].map(c=>norm(c));
+  const col = k => head.indexOf(k);
+  const C = {cat:col('servicecategory'), type:col('servicetype'), name:col('customname'), region:col('region'),
+             desc:col('description'), mon:col('estimatedmonthlycost'), up:col('estimatedupfrontcost')};
+  const rows = [];
+  let currency = '', program = '';
+  for (let i=h+1;i<grid.length;i++){
+    const r = grid[i];
+    const joined = r.join(' ');
+    const m = joined.match(/All prices shown are in (.+?)\.\s/i);
+    if (m) currency = m[1];
+    if (norm(r[C.region])==='licensingprogram') program = String(r[C.desc]||'');
+    const type = String(r[C.type]||'').trim();
+    if (!type || /^support$/i.test(String(r[C.cat]||''))) continue;
+    rows.push({cat:String(r[C.cat]||'').trim(), type, name:String(r[C.name]||'').trim(),
+      region:String(r[C.region]||'').trim(), desc:String(r[C.desc]||'').trim(),
+      monthly:num(r[C.mon]), upfront:num(r[C.up])});
+  }
+  return {rows, currency, program};
+}
+
+/* ---------- description parsers ---------- */
+function hoursIn(d){ const m=d.match(/x\s*([\d,.]+)\s*Hours?/i); return m?num(m[1]):730; }
+function termIn(s){
+  if (/savings\s*plan/i.test(s)) return /3\s*year/i.test(s)?'sp3':'sp1';
+  if (/reserv/i.test(s)) return /3\s*year/i.test(s)?'3y':'1y';
+  return 'payg';
+}
+function parseVM(d){
+  // "4 D2 v3 (2 vCPUs, 8 GB RAM) x 730 Hours (Pay as you go), Windows (Licence included), OS Only; ..."
+  const m = d.match(/^\s*(\d+)\s+(.+?)\s*\(([^)]*vCPU[^)]*)\)\s*x\s*([\d,.]+)\s*Hours?\s*\(([^)]*)\)\s*,\s*([^,;(]+?)\s*(?:\(([^)]*)\))?\s*[,;]/i);
+  if (!m) return null;
+  const size = m[2].split('/')[0].trim();
+  const osTxt = m[6].trim(), lic = (m[7]||'');
+  const windows = /windows/i.test(osTxt);
+  const sql = /sql/i.test(osTxt+' '+d.slice(0,200));
+  return { count:+m[1], size, sku:'Standard_'+size.replace(/\s+/g,'_'), hours:num(m[4]),
+           model:termIn(m[5]), windows, osTxt, sql,
+           ahb: windows && /hybrid/i.test(lic) && !/licen[cs]e included/i.test(lic) };
+}
+function parseSqlVcore(d){
+  const tier = (d.match(/General Purpose|Business Critical|Hyperscale/i)||[''])[0].toLowerCase();
+  const m = d.match(/(\d+)\s*-\s*(\d+)\s*vCore\s*(?:Database|Pool|Instance)/i) || d.match(/(\d+)\s*x\s*(\d+)\s*vCore/i);
+  let count=1, vcores=0;
+  if (m){ count=+m[1]; vcores=+m[2]; }
+  else { const v=d.match(/(\d+)\s*vCore/i); if (v) vcores=+v[1]; }
+  const hrs = (()=>{ const h=d.match(/vCore[^,;]*?x\s*([\d,.]+)\s*Hours?/i); return h?num(h[1]):hoursIn(d); })();
+  return { tier, count, vcores, hours:hrs, dtu:/\bDTU\b/i.test(d), serverless:/serverless/i.test(d),
+           ahb:/hybrid benefit/i.test(d) && !/licen[cs]e included/i.test(d), model:termIn(d), exact:!!m };
+}
+function parseAppService(d){
+  // assumed shape: "Premium V3 Tier; 1 P1V3 (2 Core(s), 8 GB RAM, 250 GB Storage) x 730 Hours; Windows OS; ..."
+  // the bracket holds nested brackets ("2 Core(s), ..."), so match one level of nesting
+  const m = d.match(/(\d+)\s+([A-Z]{1,2}\d+[a-z]*\s?(?:v\d)?)\s*\((?:[^()]|\([^()]*\))*\)\s*x\s*([\d,.]+)\s*Hours?/i);
+  if (!m) return null;
+  return { count:+m[1], sku:m[2].trim(), hours:num(m[3]), linux:/linux/i.test(d), model:termIn(d) };
+}
+
+/* ---------- price lookups ---------- */
+async function fcVmRates(sku, arm){
+  const items = await fcAll(`armSkuName eq '${odata(sku)}' and armRegionName eq '${odata(arm)}' and serviceName eq 'Virtual Machines'`, true);
+  if (!items) return null;
+  const c = items.filter(noSpot);
+  const isWin = i => /windows/i.test(i.productName||'');
+  const cons = c.filter(i=>(i.type||i.priceType)==='Consumption');
+  const linItem = cons.filter(i=>!isWin(i) && !/cloudservice/i.test(i.productName||'')).sort((a,b)=>a.retailPrice-b.retailPrice)[0];
+  const lin = linItem ? linItem.retailPrice : null;
+  const win = minOf(cons.filter(isWin).map(i=>i.retailPrice));
+  const dev = minOf(c.filter(i=>(i.type||i.priceType)==='DevTestConsumption' && isWin(i)).map(i=>i.retailPrice));
+  const res = lbl => minOf(c.filter(i=>(i.type||i.priceType)==='Reservation' && i.reservationTerm===lbl && !isWin(i)).map(i=>i.retailPrice));
+  const r1 = res('1 Year'), r3 = res('3 Years');
+  const sp = t => { const s=(linItem&&linItem.savingsPlan||[]).find(x=>x.term===t); return s?s.retailPrice:null; };
+  if (lin==null) return null;
+  return { lin, win, dev: dev!=null?dev:lin, r1m:r1!=null?r1/12:null, r3m:r3!=null?r3/36:null, sp1:sp('1 Year'), sp3:sp('3 Years') };
+}
+async function fcSqlLicence(product){
+  const items = await fcAll(`priceType eq 'Consumption' and productName eq '${odata(product)}'`, false);
+  if (!items) return null;
+  return minOf(items.filter(i=>i.armRegionName==='Global' || /global/i.test(i.location||'')).map(i=>i.retailPrice).filter(v=>v>0));
+}
+async function fcAppRates(arm, sku, linux){
+  const items = await fcAll(`serviceName eq 'Azure App Service' and armRegionName eq '${odata(arm)}' and (priceType eq 'Consumption' or priceType eq 'DevTestConsumption')`, false, 20);
+  if (!items) return null;
+  const want = norm(sku);
+  const hits = items.filter(i => norm(i.skuName)===want && (/linux/i.test(i.productName||'')===linux)
+                                 && (/app$/i.test(i.meterName||'') || norm(i.meterName)===want));
+  const payg = minOf(hits.filter(i=>(i.type||i.priceType)==='Consumption').map(i=>i.retailPrice));
+  const dev  = minOf(hits.filter(i=>(i.type||i.priceType)==='DevTestConsumption').map(i=>i.retailPrice));
+  return payg==null ? null : {payg, dev};
+}
+
+/* ---------- price one calculator line ----------
+   Produces: payg (Azure Plan PAYG /mo, calculator configuration),
+             save (Dev/Test saving vs that), lic (Windows licence $/mo that
+             AHB would remove on Azure Plan), res (reservation option),
+             basis (plain-English explanation), status ok|same|check. */
+async function priceLine(r){
+  const L = { ...r, arm:armRegion(r.region), payg:r.monthly, save:0, lic:0,
+              workload:'devtest', override:null, basis:'', status:'same', kind:'other' };
+  const t = r.type.toLowerCase(), d = r.desc;
+  try{
+    if (t==='virtual machines'){
+      L.kind='vm';
+      const p = parseVM(d);
+      if (!p){ L.status='check'; L.basis="Couldn't read the VM size from the description, so it's shown at the same price on both sides."; return L; }
+      const R = await fcVmRates(p.sku, L.arm);
+      if (!R){ L.status='check'; L.basis=`No retail rate found for ${p.sku} in ${L.arm||'this region'}, so it's shown at the same price on both sides.`; return L; }
+      const unit = p.count*p.hours;
+      const licH = (p.windows && !p.ahb && R.win!=null) ? Math.max(0,R.win-R.lin) : 0;
+      // what the calculator charged for compute, so we can rebase to PAYG
+      const upMonths = p.model==='3y'||p.model==='sp3' ? 36 : 12;
+      const effective = r.monthly + (r.upfront>0 ? r.upfront/upMonths : 0);
+      let calcComp = unit*(R.lin+licH), rebased=false;
+      if (p.model==='1y' && R.r1m!=null){ calcComp = p.count*R.r1m + unit*licH; rebased=true; }
+      if (p.model==='3y' && R.r3m!=null){ calcComp = p.count*R.r3m + unit*licH; rebased=true; }
+      if (p.model==='sp1' && R.sp1!=null){ calcComp = unit*(R.sp1+licH); rebased=true; }
+      if (p.model==='sp3' && R.sp3!=null){ calcComp = unit*(R.sp3+licH); rebased=true; }
+      const other = Math.max(0, effective - calcComp);            // disks, bandwidth etc.
+      L.payg = other + unit*(R.lin+licH);
+      L.save = (p.windows && !p.ahb) ? unit*Math.max(0,(R.win??R.lin)-R.dev) : 0;
+      L.lic  = unit*licH;
+      L.vm = p;
+      const os = p.windows ? (p.ahb?'Windows (AHB)':'Windows') : 'Linux';
+      L.label = `${p.count} × ${p.size} · ${os}`;
+      if (p.windows && !p.ahb) { L.status='ok'; L.basis=`Dev/Test bills Windows at the Linux rate: ${fmtRate(R.dev)}/hr vs ${fmtRate(R.win)}/hr on Azure Plan.`; }
+      else { L.status='same'; L.basis = p.windows ? 'Windows licence already covered by Azure Hybrid Benefit, so the price is the same on both sides.' : 'Linux VMs are priced the same on Dev/Test.'; }
+      if (p.sql){ L.status='check'; L.basis+=' SQL Server licence on the VM: Dev/Test saving not modelled yet.'; }
+      if (rebased) L.basis += ` The calculator priced this line on a ${p.model.startsWith('sp')?'savings plan':'reservation'}. It's converted to PAYG here so both sides compare like for like.`;
+      if (p.model==='payg' && Math.abs(unit*(R.lin+licH) - r.monthly) > r.monthly*0.02 && unit*(R.lin+licH) > r.monthly){
+        L.status='check'; L.basis+=` Our compute rate (${fmtU(unit*(R.lin+licH))}) is above the calculator's line total. Check the configuration.`;
+      }
+      return L;
+    }
+    if (t==='azure sql database' || t==='sql database' || t==='azure sql managed instance' || t==='sql managed instance'){
+      const mi = /managed instance/i.test(t);
+      L.kind = mi ? 'sqlmi' : 'sqldb';
+      const p = parseSqlVcore(d);
+      L.label = `${mi?'SQL MI':'SQL DB'} · ${p.tier||'—'} · ${p.count} × ${p.vcores} vCore`;
+      if (p.dtu){ L.basis='DTU model has no published Dev/Test rate, so it costs the same on both sides.'; return L; }
+      if (p.tier==='hyperscale'){ L.basis="Hyperscale has no SQL licence fee, so Dev/Test saves nothing and the price is the same on both sides."; return L; }
+      if (p.serverless){ L.status='check'; L.basis='Serverless: Dev/Test licence pricing not modelled yet, so it costs the same on both sides.'; return L; }
+      if (p.ahb){ L.basis='SQL licence already covered by Azure Hybrid Benefit, so the price is the same on both sides.'; return L; }
+      if (!p.tier || !p.vcores){ L.status='check'; L.basis="Couldn't read the tier or vCores, so it's shown at the same price on both sides."; return L; }
+      const product = mi ? `SQL Managed Instance ${p.tier==='business critical'?'Business Critical':'General Purpose'} - SQL License`
+                         : `SQL Database Single/Elastic Pool ${p.tier==='business critical'?'Business Critical':'General Purpose'} - SQL License`;
+      const rate = await fcSqlLicence(product);
+      if (rate==null){ L.status='check'; L.basis='SQL licence rate unavailable, so it costs the same on both sides.'; return L; }
+      L.save = p.count*p.vcores*p.hours*rate;
+      L.status = (p.exact && !mi) ? 'ok' : 'check';
+      L.basis = `Dev/Test waives the SQL licence: ${p.count*p.vcores} vCore × ${p.hours} h × ${fmtRate(rate)}/vCore-hr.`
+              + (p.model!=='payg' ? ' The calculator priced this line on a reservation. Check that the line total reflects PAYG compute.' : '')
+              + (mi ? " SQL MI description format not yet verified against a real export, so check the vCores." : '');
+      return L;
+    }
+    if (/app service/i.test(t)){
+      L.kind='app';
+      const p = parseAppService(d);
+      if (!p || !L.arm){ L.status='check'; L.basis="Couldn't read the plan size from the description, so it's shown at the same price on both sides."; return L; }
+      L.label = `${p.count} × ${p.sku} · ${p.linux?'Linux':'Windows'}`;
+      const R = await fcAppRates(L.arm, p.sku, p.linux);
+      if (!R){ L.status='check'; L.basis=`No retail rate found for ${p.sku}, so it's shown at the same price on both sides.`; return L; }
+      if (R.dev==null){ L.basis=`No Dev/Test rate is published for ${p.sku}${p.linux?' Linux':''}, so it costs the same on both sides.`; return L; }
+      L.save = p.count*p.hours*Math.max(0,R.payg-R.dev);
+      L.status = 'ok';
+      L.basis = `Dev/Test plan rate ${fmtRate(R.dev)}/hr vs ${fmtRate(R.payg)}/hr on Azure Plan.`;
+      if (p.count*p.hours*R.payg > r.monthly*1.1){ L.status='check'; L.basis+=" Our rate comes out above the calculator's figure. Check the plan size."; }
+      return L;
+    }
+    L.basis = 'No published Dev/Test rate for this service, so it costs the same on both sides.';
+    return L;
+  } catch(e){
+    L.status='check'; L.basis='Pricing failed for this line ('+e.message+'), so it\'s shown at the same price on both sides.'; return L;
+  }
+}
+
+/* ---------- maths ---------- */
+function lineView(L){
+  const ahb = $('fcAhb').checked;
+  const apPayg = L.payg - (ahb ? L.lic : 0);
+  let devCalc = L.payg - L.save;
+  if (L.workload==='prod') devCalc = apPayg;   // production can't run on Dev/Test
+  const dev = L.override!=null ? L.override : devCalc;
+  return {dev, apPayg};
+}
+function fcTotals(){
+  let dev=0, payg=0, prod=0, checks=0;
+  F.lines.forEach(L=>{
+    const v=lineView(L); dev+=v.dev; payg+=v.apPayg;
+    if (L.workload==='prod') prod++;
+    if (L.status==='check') checks++;
+  });
+  const d = parseFloat($('fcDisc').value)/100;
+  const ap = payg*(1-d);
+  const be = payg>0 ? Math.max(0, 1-(dev/payg)) : 0;
+  const pct = num($('fcSupportPct').value);
+  const support = dev * ((pct>=0&&pct<=100)?pct:10) / 100;
+  return {dev, payg, ap, d, be, prod, checks, support, delta:dev-ap};
+}
+
+/* ---------- render ---------- */
+function statusPill(s){
+  return s==='ok' ? '<span class="pill-ok">Dev/Test rate</span>'
+       : s==='check' ? '<span class="pill-part">check</span>'
+       : '<span class="pill-no">same price</span>';
+}
+function renderForecast(){
+  const tb = $('fcTable').querySelector('tbody');
+  tb.innerHTML = F.lines.map((L,i)=>{
+    return `<tr>
+      <td><strong>${esc(L.type)}</strong>${L.name?` · ${esc(L.name)}`:''}<br><span class="hint">${esc(L.label||'')}${L.region?` · ${esc(L.region)}`:''}</span></td>
+      <td><select class="term" data-i="${i}" data-k="workload" aria-label="Workload type">
+            <option value="devtest"${L.workload==='devtest'?' selected':''}>Dev/Test</option>
+            <option value="prod"${L.workload==='prod'?' selected':''}>Production</option>
+          </select></td>
+      <td class="r"><input class="hrs" type="number" min="0" step="0.01" data-i="${i}" data-k="override" aria-label="Dev/Test monthly cost" placeholder="${(L.payg-L.save).toFixed(2)}" value="${L.override!=null?L.override:''}"></td>
+      <td class="r num" id="fcAp${i}">—</td>
+      <td class="r num" id="fcSv${i}">—</td>
+      <td>${statusPill(L.status)}<br><span class="hint">${esc(L.basis)}</span></td>
+    </tr>`;
+  }).join('');
+  tb.querySelectorAll('[data-k]').forEach(el=>{
+    el.addEventListener(el.tagName==='SELECT'?'change':'input', e=>{
+      const L = F.lines[+e.target.dataset.i], k = e.target.dataset.k;
+      if (k==='override') L.override = e.target.value==='' ? null : num(e.target.value);
+      else L[k] = e.target.value;
+      fcUpdate();
+    });
+  });
+  fcUpdate();
+}
+function fcUpdate(){
+  if (!F.lines.length) return;
+  const T = fcTotals();
+  F.lines.forEach((L,i)=>{
+    const v = lineView(L);
+    $('fcAp'+i).textContent = fmtU(v.apPayg);
+    const inp = document.querySelector(`#fcTable input[data-i="${i}"]`);
+    if (inp) inp.placeholder = v.dev.toFixed(2);
+    const sv = $('fcSv'+i), diff = v.apPayg - v.dev;
+    sv.className = 'r num '+(diff>0.5?'delta-neg':'res-none');
+    sv.textContent = diff>0.5 ? fmtU(diff) : '—';
+  });
+  $('fcTable').querySelector('tfoot').innerHTML =
+    `<tr><td colspan="2">Total (${F.lines.length} lines)</td><td class="r num">${fmtU(T.dev)}</td><td class="r num">${fmtU(T.payg)}</td><td class="r num">${fmtU(Math.max(0,T.payg-T.dev))}</td><td></td></tr>`;
+
+  $('fcDiscLabel').textContent = (T.d*100).toFixed(1)+'%';
+  $('fcBeLabel').textContent = (T.be*100).toFixed(1)+'%';
+  $('fcKpiDev').textContent = fmtU(T.dev);
+  $('fcKpiPayg').textContent = fmtU(T.payg);
+  $('fcKpiPaygNote').textContent = $('fcAhb').checked ? 'per month, AHB applied to Windows' : 'per month, before discount';
+  $('fcKpiAp').textContent = fmtU(T.ap);
+
+  const pct = Math.min(100,(T.be*100)/30*100);
+  $('fcBeTick').style.left = `calc(${pct.toFixed(2)}% - 1px)`;
+  $('fcTrack').style.background = `linear-gradient(to right, var(--bad-soft) 0%, var(--bad-soft) ${pct.toFixed(2)}%, var(--good-soft) ${pct.toFixed(2)}%, var(--good-soft) 100%)`;
+
+  const b = $('fcBanner');
+  const prodNote = T.prod ? ` ${T.prod} production line(s) are priced as Azure Plan on both sides, because production can't run on Dev/Test.` : '';
+  if (T.delta>=0){
+    b.className='verdict-banner good';
+    $('fcVerdictTitle').textContent='Azure Plan (CSP) is cheaper at this discount';
+    $('fcVerdictSub').textContent=`At ${(T.d*100).toFixed(1)}% partner discount, the planned estate costs less on Azure Plan than on a Dev/Test subscription.`+prodNote;
+    $('fcVerdictDelta').textContent='− '+fmtU(Math.abs(T.delta));
+  } else {
+    b.className='verdict-banner bad';
+    $('fcVerdictTitle').textContent='Dev/Test is cheaper at this discount';
+    $('fcVerdictSub').textContent=(T.be*100<=30
+      ? `The discount needs to reach ${(T.be*100).toFixed(1)}% before Azure Plan beats Dev/Test rates.`
+      : `Break-even is ${(T.be*100).toFixed(1)}%, beyond a realistic pass-through.`)+prodNote;
+    $('fcVerdictDelta').textContent='+ '+fmtU(Math.abs(T.delta));
+  }
+
+  const money = (l,m,sign='',cls='') => `<tr><td>${l}</td><td class="r num ${cls}">${sign}${fmtU(Math.abs(m))}</td><td class="r num ${cls}">${sign}${fmtU(Math.abs(m*12))}</td></tr>`;
+  const disc = T.payg*T.d;
+  const allUp = T.delta + T.support;
+  $('fcAllupTable').querySelector('tbody').innerHTML =
+      money('Dev/Test subscription (Pay-As-You-Go Dev/Test rates)', T.dev)
+    + money('Azure Plan (CSP) at retail PAYG', T.payg)
+    + money(`Partner discount at ${(T.d*100).toFixed(1)}%`, disc, '− ', 'delta-pos')
+    + money('Azure Plan (CSP) after discount', T.ap)
+    + money(T.delta>=0?'Direct saving on Azure Plan':'Extra cost of Azure Plan vs Dev/Test', T.delta, T.delta>=0?'':'− ', T.delta>=0?'delta-pos':'delta-neg')
+    + money('Support / SLA opportunity value', T.support, '', 'delta-pos');
+  $('fcAllupTable').querySelector('tfoot').innerHTML =
+    `<tr><td>All-up value of choosing Azure Plan</td><td class="r num ${allUp>=0?'delta-pos':'delta-neg'}">${allUp<0?'− ':''}${fmtU(Math.abs(allUp))}</td><td class="r num ${allUp>=0?'delta-pos':'delta-neg'}">${allUp<0?'− ':''}${fmtU(Math.abs(allUp*12))}</td></tr>`;
+  $('fcSummaryVerdict').textContent = (T.checks?`${T.checks} line(s) are marked "check". Review them before sharing. `:'')
+    + `Break-even discount: ${(T.be*100).toFixed(1)}%.`;
+}
+
+function fcSummaryText(){
+  const T = fcTotals();
+  const L = [
+    'Dev/Test vs Azure Plan (CSP): pre-deployment forecast (USD)',
+    `Source: Azure pricing calculator export${F.meta.program?` (${F.meta.program})`:''}, ${F.lines.length} lines, repriced via Azure Retail Prices API`,
+    '',
+    `Dev/Test subscription:              ${fmtU(T.dev)}/mo  (${fmtU(T.dev*12)}/yr)`,
+    `Azure Plan at retail PAYG:          ${fmtU(T.payg)}/mo`,
+    `Partner discount (${(T.d*100).toFixed(1)}%):          − ${fmtU(T.payg*T.d)}/mo`,
+    `Azure Plan after discount:          ${fmtU(T.ap)}/mo  (${fmtU(T.ap*12)}/yr)`,
+    `Break-even discount:                ${(T.be*100).toFixed(1)}%`,
+    `Support / SLA opportunity value:    ${fmtU(T.support)}/mo`,
+    `All-up value of Azure Plan:         ${fmtU(T.delta+T.support)}/mo  (${fmtU((T.delta+T.support)*12)}/yr)`,
+    '',
+    'Per line (Dev/Test /mo | Azure Plan PAYG /mo):'
+  ];
+  F.lines.forEach(x=>{ const v=lineView(x); L.push(`- ${x.type}${x.name?' · '+x.name:''} (${x.region||'global'}): ${fmtU(v.dev)} | ${fmtU(v.apPayg)}${x.workload==='prod'?' [production]':''}${x.status==='check'?' [check]':''}`); });
+  L.push('', 'Estimates only, not a quote. Dev/Test is for non-production workloads only and has no financially-backed SLA.');
+  return L.join('\n');
+}
+
+/* ---------- run ---------- */
+function fcSetStatus(t){ $('fcStatus').textContent=t; }
+function fcWarn(t){ const w=$('fcWarn'); w.textContent=t; w.style.display=t?'block':'none'; }
+async function buildForecast(source){
+  fcWarn(''); F.apiFailed=false;
+  $('btnForecast').disabled = true;
+  try{
+    fcSetStatus('Reading estimate…');
+    const parsed = source.rows ? source : await readCalculatorExport(source);
+    F.meta = {currency:parsed.currency, program:parsed.program};
+    if (!parsed.rows.length) throw new Error('No resource lines were found in the estimate.');
+    if (parsed.currency && !/USD/i.test(parsed.currency)){
+      throw new Error(`This estimate is in ${parsed.currency}. Microsoft prices Azure in USD, so this tool compares in USD. Switch the calculator's currency to "United States – Dollar ($) USD", export again, and re-import.`);
+    }
+    const out = [];
+    for (let i=0;i<parsed.rows.length;i++){
+      fcSetStatus(`Pricing line ${i+1} of ${parsed.rows.length}: ${parsed.rows[i].type}…`);
+      out.push(await priceLine(parsed.rows[i]));
+    }
+    F.lines = out;
+    const warns = [];
+    if (F.apiFailed) warns.push('Some lookups to prices.azure.com failed (blocked or offline). Those lines are shown at the same price on both sides. Retry on a network that allows prices.azure.com.');
+    if (parsed.rows.some(r=>/dev\s*\/?\s*test/i.test(r.desc))) warns.push('The estimate mentions Dev/Test. If it was built with the calculator\'s Dev/Test pricing switched on, the Azure Plan side is understated. Rebuild it with Dev/Test pricing off.');
+    if (warns.length) fcWarn(warns.join('\n'));
+    $('fcResults').hidden = false;
+    renderForecast();
+    fcSetStatus(`Priced ${out.length} line(s): ${out.filter(l=>l.status==='ok').length} with a Dev/Test rate, ${out.filter(l=>l.status==='check').length} to check.`);
+  } catch(e){
+    fcWarn(e.message); fcSetStatus('');
+  } finally { $('btnForecast').disabled = !F.file; }
+}
+function fcDemo(){
+  // Illustrative estimate in the calculator's export shape (USD). The first two
+  // lines mirror a real export; the others follow the same pattern.
+  return { currency:'United States – Dollar ($) USD', program:'Microsoft Customer Agreement (MCA)', rows:[
+    {cat:'Compute', type:'Virtual Machines', name:'App servers', region:'East US', monthly:548.96, upfront:0,
+     desc:'4 D2 v3 (2 vCPUs, 8 GB RAM) x 730 Hours (Pay as you go), Windows (Licence included), OS Only; 0 managed disks – S4; Inter Region transfer type, 5 GB outbound data transfer from East US to East Asia'},
+    {cat:'Compute', type:'Virtual Machines', name:'Build agents', region:'East US', monthly:140.16, upfront:0,
+     desc:'2 D2s v3 (2 vCPUs, 8 GB RAM) x 730 Hours (Pay as you go), Linux, Ubuntu (Pay as you go), OS Only; 0 managed disks – S4'},
+    {cat:'Databases', type:'Azure SQL Database', name:'Reporting DB', region:'East US', monthly:807.5508, upfront:0,
+     desc:'Single Database, vCore, Hyperscale, Provisioned, Standard-series (Gen 5), 3 - 2 vCore Database(s) x 730 Hours, 0 high availability replicas per database x 730 Hours, 0 Named replicas per database x 730 Hours, 10 GB Storage, LRS Back up Storage Redundancy, 0 GB Point-In-Time Restore,  0 x 5 GB Long Term Retention'},
+    {cat:'Databases', type:'Azure SQL Database', name:'App DB', region:'East US', monthly:740.05, upfront:0,
+     desc:'Single Database, vCore, General Purpose, Provisioned, Standard-series (Gen 5), Locally Redundant, 1 - 4 vCore Database(s) x 730 Hours, 32 GB Storage, LRS Back up Storage Redundancy, 0 GB Point-In-Time Restore, 0 x 5 GB Long Term Retention'},
+    {cat:'Web', type:'App Service', name:'Web front end', region:'East US', monthly:229.95, upfront:0,
+     desc:'Premium V3 Tier; 1 P1V3 (2 Core(s), 8 GB RAM, 250 GB Storage) x 730 Hours; Windows OS; 0 SNI SSL Connections; 0 IP SSL Connections; 0 Custom Domains; 0 Standard SSL Certificates; 0 Wildcard SSL Certificates'},
+    {cat:'Storage', type:'Storage Accounts', name:'', region:'East US', monthly:20.80, upfront:0,
+     desc:'Block Blob Storage, General Purpose V2, Flat Namespace, LRS Redundancy, Hot Access Tier, 1,000 GB Capacity - Pay as you go'}
+  ]};
+}
+
+/* ---------- wiring ---------- */
+$('modeTabs').addEventListener('click',e=>{
+  const b=e.target.closest('button[data-mode]'); if(!b) return;
+  $('modeTabs').querySelectorAll('button').forEach(x=>x.setAttribute('aria-selected', x===b?'true':'false'));
+  $('modeForecast').hidden = b.dataset.mode!=='forecast';
+  $('modeAnalyse').hidden  = b.dataset.mode!=='analyse';
+});
+(function(){
+  const dz=$('dzFc'), inp=$('fileFc');
+  const take = f => { if(!f) return; F.file=f; $('tagFc').textContent=f.name; dz.classList.add('loaded'); $('btnForecast').disabled=false; };
+  dz.addEventListener('click',()=>inp.click());
+  dz.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); inp.click(); } });
+  inp.addEventListener('change',()=>take(inp.files[0]));
+  ['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('drag');}));
+  ['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove('drag');}));
+  dz.addEventListener('drop',e=>take(e.dataTransfer.files[0]));
+})();
+$('btnForecast').addEventListener('click',()=>F.file && buildForecast(F.file));
+$('btnFcDemo').addEventListener('click',()=>{ $('tagFc').textContent='demo-estimate (illustrative)'; $('dzFc').classList.add('loaded'); buildForecast(fcDemo()); });
+$('fcDisc').addEventListener('input',fcUpdate);
+$('fcAhb').addEventListener('change',fcUpdate);
+$('fcSupportPct').addEventListener('input',fcUpdate);
+$('fcBtnPDF').addEventListener('click',()=>window.print());
+$('fcBtnCopy').addEventListener('click',async()=>{
+  try{ await navigator.clipboard.writeText(fcSummaryText()); $('fcCopyDone').textContent='Copied ✓'; }
+  catch(e){ $('fcCopyDone').textContent='Copy failed. Select and copy manually.'; }
+  setTimeout(()=>$('fcCopyDone').textContent='',2500);
 });
 </script>
 </body>
