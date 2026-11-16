@@ -107,6 +107,28 @@ A **Summary** capstone at the bottom of the results restates the whole picture �
 - **Download PDF report** — uses the browser's print-to-PDF. The input controls, buttons and slider handle are hidden by a print stylesheet, leaving a clean report (verdict, KPIs, uplift, reservations, all-up business case, service breakdown, caveats). Nothing leaves the browser.
 - **Copy summary to clipboard** — a plain-text summary including the all-up figures.
 
+## Forecast mode: planned resources (no Dev/Test subscription yet)
+
+The **Forecast planned resources** tab is for customers who haven't deployed yet. It takes an **Azure pricing calculator export** and shows each line side by side on a **Pay-As-You-Go Dev/Test** subscription and a standard **Azure Plan (CSP)** subscription, in **USD** (the currency Microsoft prices Azure in).
+
+1. Build the estimate at <https://azure.microsoft.com/pricing/calculator/> with the currency set to **USD** and **Dev/Test pricing off**.
+2. **Export** it to Excel and drop the `.xlsx` into the Forecast tab.
+
+How each line is priced (rates come from the Retail Prices API):
+
+| Service | Dev/Test vs Azure Plan |
+|---|---|
+| Virtual Machines | Windows billed at the Linux rate on Dev/Test (`DevTestConsumption`); Linux is the same price on both sides |
+| SQL Database / SQL Managed Instance, vCore General Purpose and Business Critical | SQL licence meter is $0 on Dev/Test |
+| SQL Database Hyperscale | Same price: Hyperscale has no SQL licence fee ([Learn](https://learn.microsoft.com/azure/azure-sql/database/service-tier-hyperscale)) |
+| App Service plans | Published Dev/Test plan rate where one exists |
+| Everything else | No published Dev/Test rate, so the same price on both sides |
+
+- **Pay-as-you-go on both sides.** A Pay-As-You-Go Dev/Test subscription can't hold reservations, so the forecast compares PAYG with PAYG. Calculator lines priced on a reservation or savings plan are converted back to PAYG.
+- Each line can be marked **Production**. Production can't run on Dev/Test, so that line costs the same on both sides.
+- Any line's Dev/Test figure can be overridden by hand. Lines the parser only partly understood are flagged **check**.
+- Not modelled yet: the SQL Server licence on SQL VMs, and serverless SQL. Both are priced the same on both sides.
+
 ## How the comparison works
 
 | Step | Calculation |
